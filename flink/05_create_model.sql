@@ -38,6 +38,18 @@ WITH (
 --   'api-key'  = '<AZURE_OPENAI_API_KEY>'
 -- );
 
+-- ---- Option D: Google AI / Gemini (uncomment to use instead) ----
+-- Get an API key at https://aistudio.google.com/apikey (works with Gemini Pro).
+-- Swap the model in the path (gemini-2.0-flash, gemini-1.5-pro, ...).
+-- CREATE CONNECTION `llm-dispatcher-connection`
+-- WITH (
+--   'type'     = 'GOOGLEAI',
+--   'endpoint' = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent',
+--   'api-key'  = '<GOOGLEAI_API_KEY>'
+-- );
+
+-- CREATE MODEL — set 'provider' to match the connection you created above.
+-- Bedrock (Option A, default):
 CREATE MODEL `llm_dispatcher_model`
 INPUT  (`prompt` STRING)
 OUTPUT (`response` STRING)
@@ -47,3 +59,13 @@ WITH (
   'bedrock.connection'       = 'llm-dispatcher-connection',
   'bedrock.params.max_tokens' = '1024'
 );
+
+-- Google AI / Gemini (Option D) — use this WITH clause instead of the one above:
+-- CREATE MODEL `llm_dispatcher_model`
+-- INPUT  (`prompt` STRING)
+-- OUTPUT (`response` STRING)
+-- WITH (
+--   'provider'           = 'googleai',
+--   'task'               = 'text_generation',
+--   'googleai.connection' = 'llm-dispatcher-connection'
+-- );

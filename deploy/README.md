@@ -17,8 +17,11 @@ You also need:
   and the script reuses that session. For a fully non-interactive run instead, put a
   **Cloud API key** (Console → top-right menu → *Cloud API keys*, created by an
   OrganizationAdmin) in `deploy.env` — the script logs in with it automatically.
-- **AWS Bedrock** credentials with `bedrock:InvokeModel` for the Claude model (the
-  Flink AI agents call the LLM through a Bedrock connection).
+- **An in-Flink LLM**, one of:
+  - **AWS Bedrock** (`LLM_PROVIDER=bedrock`, the F1-demo default) — AWS credentials
+    with `bedrock:InvokeModel` on the model.
+  - **Google AI / Gemini** (`LLM_PROVIDER=googleai`) — an API key from
+    [Google AI Studio](https://aistudio.google.com/apikey) (works with Gemini Pro).
 - An **Anthropic API key** for the interactive agents (rider/operator/route
   designer run Claude as a side service, not in Flink).
 
@@ -46,6 +49,21 @@ and `curl localhost:8000/healthz` should return `{"status":"ok","live":true,...}
 
 Open **Confluent Cloud → your environment → Stream Lineage** and screenshot it for
 the submission form (that screenshot is required and must be real, not AI made).
+
+## Choosing the in-Flink LLM (Bedrock or Gemini)
+
+The dispatcher agent's LLM is set by `LLM_PROVIDER` in `deploy.env`:
+
+- **`bedrock`** (default) — fill `AWS_BEDROCK_ACCESS_KEY` / `AWS_BEDROCK_SECRET_KEY`
+  (+ optional `AWS_SESSION_TOKEN`), `BEDROCK_REGION`, `BEDROCK_MODEL_ID`.
+- **`googleai`** — get a key at https://aistudio.google.com/apikey, then set
+  `GOOGLEAI_API_KEY` and `GEMINI_MODEL_ID` (e.g. `gemini-2.0-flash`,
+  `gemini-1.5-pro`). `provision.sh` creates a `--type googleai` connection and a
+  `CREATE MODEL ... 'provider'='googleai'` for you.
+
+Only the block matching your `LLM_PROVIDER` needs to be filled in. Doing it by hand
+in the Console instead? `flink/05_create_model.sql` has both the Bedrock and Gemini
+`CREATE CONNECTION` / `CREATE MODEL` variants to copy.
 
 ## Teardown
 

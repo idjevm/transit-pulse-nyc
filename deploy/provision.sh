@@ -42,10 +42,9 @@ command -v jq >/dev/null || die "jq not found (brew install jq)"
 source "$ENV_FILE"
 
 # Confluent auth is flexible (see the auth step below): an existing CLI session,
-# a Cloud API key in deploy.env, or interactive login all work. Only the Bedrock
-# credentials for the in-Flink LLM are strictly required here.
-: "${AWS_BEDROCK_ACCESS_KEY:?set in deploy.env}"
-: "${AWS_BEDROCK_SECRET_KEY:?set in deploy.env}"
+# a Cloud API key in deploy.env, or interactive login all work. The in-Flink LLM
+# creds (Bedrock or Google AI / Gemini, per LLM_PROVIDER) are validated at the
+# connection step below.
 
 CLOUD="${CLOUD:-aws}"; REGION="${REGION:-us-east-1}"
 ENV_NAME="${ENV_NAME:-MTA-STREAMING-INTELLIGENCE}"
@@ -56,6 +55,11 @@ FLINK_MAX_CFU="${FLINK_MAX_CFU:-10}"
 BEDROCK_REGION="${BEDROCK_REGION:-$REGION}"
 BEDROCK_MODEL_ID="${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}"
 CONNECTION_NAME="llm-dispatcher-connection"
+
+# In-Flink LLM provider: bedrock (default) or googleai (Google AI Studio / Gemini).
+LLM_PROVIDER="$(echo "${LLM_PROVIDER:-bedrock}" | tr '[:upper:]' '[:lower:]')"
+GEMINI_MODEL_ID="${GEMINI_MODEL_ID:-gemini-2.0-flash}"
+GOOGLEAI_ENDPOINT="${GOOGLEAI_ENDPOINT:-https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL_ID}:generateContent}"
 
 # ---- find-or-create helpers (idempotent by display name) --------------------
 
@@ -121,30 +125,50 @@ fi
 run "confluent flink compute-pool use $POOL_ID"
 echo "    POOL_ID=$POOL_ID"
 
-log "Bedrock LLM connection: $CONNECTION_NAME"
+log "LLM connection: $CONNECTION_NAME (provider=$LLM_PROVIDER)"
 # The in-Flink dispatcher agent (CREATE MODEL -> CREATE AGENT -> AI_RUN_AGENT)
-# calls Claude through this Bedrock connection — same idea as the F1 demo's
-# terraform/modules/llm, just created here with the CLI from your deploy.env creds.
-: "${BEDROCK_MODEL_ID:?set BEDROCK_MODEL_ID in deploy.env}"
-: "${BEDROCK_REGION:?set BEDROCK_REGION (or REGION) in deploy.env}"
-BEDROCK_ENDPOINT="https://bedrock-runtime.${BEDROCK_REGION}.amazonaws.com/model/${BEDROCK_MODEL_ID}/invoke"
-echo "    model=$BEDROCK_MODEL_ID  region=$BEDROCK_REGION"
-echo "    access_key=${AWS_BEDROCK_ACCESS_KEY:0:4}…  secret=***  session_token=$([ -n "${AWS_SESSION_TOKEN:-}" ] && echo present || echo none)"
+# calls the LLM through this connection — same idea as the F1 demo's
+# terraform/modules/llm, created here with the CLI from your deploy.env creds.
+# CONN_FLAGS/MODEL_WITH are set per provider, then reused for create + CREATE MODEL.
+case "$LLM_PROVIDER" in
+  bedrock)
+    : "${AWS_BEDROCK_ACCESS_KEY:?set in deploy.env for LLM_PROVIDER=bedrock}"
+    : "${AWS_BEDROCK_SECRET_KEY:?set in deploy.env for LLM_PROVIDER=bedrock}"
+    : "${BEDROCK_MODEL_ID:?set BEDROCK_MODEL_ID in deploy.env}"
+    : "${BEDROCK_REGION:?set BEDROCK_REGION (or REGION) in deploy.env}"
+    ENDPOINT="https://bedrock-runtime.${BEDROCK_REGION}.amazonaws.com/model/${BEDROCK_MODEL_ID}/invoke"
+    echo "    model=$BEDROCK_MODEL_ID  region=$BEDROCK_REGION"
+    echo "    access_key=${AWS_BEDROCK_ACCESS_KEY:0:4}…  secret=***  session_token=$([ -n "${AWS_SESSION_TOKEN:-}" ] && echo present || echo none)"
+    TOKEN_FLAG=""
+    [ -n "${AWS_SESSION_TOKEN:-}" ] && TOKEN_FLAG="--aws-session-token \"$AWS_SESSION_TOKEN\""
+    CONN_FLAGS="--type bedrock --endpoint \"$ENDPOINT\" --aws-access-key \"$AWS_BEDROCK_ACCESS_KEY\" --aws-secret-key \"$AWS_BEDROCK_SECRET_KEY\" $TOKEN_FLAG"
+    MODEL_WITH="'provider'='bedrock','task'='text_generation','bedrock.connection'='$CONNECTION_NAME','bedrock.params.max_tokens'='1024'"
+    ;;
+  googleai|gemini)
+    LLM_PROVIDER="googleai"
+    : "${GOOGLEAI_API_KEY:?set GOOGLEAI_API_KEY in deploy.env for LLM_PROVIDER=googleai (get one at https://aistudio.google.com/apikey)}"
+    ENDPOINT="$GOOGLEAI_ENDPOINT"
+    echo "    model=$GEMINI_MODEL_ID"
+    echo "    endpoint=$ENDPOINT"
+    echo "    api_key=${GOOGLEAI_API_KEY:0:4}…"
+    CONN_FLAGS="--type googleai --endpoint \"$ENDPOINT\" --api-key \"$GOOGLEAI_API_KEY\""
+    MODEL_WITH="'provider'='googleai','task'='text_generation','googleai.connection'='$CONNECTION_NAME'"
+    ;;
+  *)
+    die "unknown LLM_PROVIDER='$LLM_PROVIDER' (use 'bedrock' or 'googleai')"
+    ;;
+esac
 if ! confluent flink connection list --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null | jq -e --arg n "$CONNECTION_NAME" '.[] | select(.name==$n)' >/dev/null; then
-  TOKEN_FLAG=""
-  [ -n "${AWS_SESSION_TOKEN:-}" ] && TOKEN_FLAG="--aws-session-token \"$AWS_SESSION_TOKEN\""
   run "confluent flink connection create \"$CONNECTION_NAME\" \
     --cloud \"$CLOUD\" --region \"$REGION\" --environment \"$ENV_ID\" \
-    --type bedrock --endpoint \"$BEDROCK_ENDPOINT\" \
-    --aws-access-key \"$AWS_BEDROCK_ACCESS_KEY\" \
-    --aws-secret-key \"$AWS_BEDROCK_SECRET_KEY\" $TOKEN_FLAG"
+    $CONN_FLAGS"
 else
   echo "    connection already exists"
 fi
 # The whole AI path depends on this — fail loud now, not later as a model error.
 confluent flink connection list --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null \
   | jq -e --arg n "$CONNECTION_NAME" '.[] | select(.name==$n)' >/dev/null \
-  || die "Bedrock connection '$CONNECTION_NAME' was not created — check the AWS creds/region in deploy.env and 'confluent flink connection create --help'"
+  || die "LLM connection '$CONNECTION_NAME' ($LLM_PROVIDER) was not created — check the creds/region in deploy.env and 'confluent flink connection create --help'"
 
 # ---- Flink statement submission ---------------------------------------------
 # Strip -- comments, split a .sql file on ';', submit each statement, and wait
@@ -198,8 +222,9 @@ submit_file "$FLINK_DIR/03_headway.sql"
 submit_file "$FLINK_DIR/04_headway_alerts.sql"
 submit_file "$FLINK_DIR/08_headway_forecast.sql"
 
-# CREATE MODEL (connection made above via the CLI, so we skip 05's CREATE CONNECTION)
-submit_stmt "CREATE MODEL \`llm_dispatcher_model\` INPUT (\`prompt\` STRING) OUTPUT (\`response\` STRING) WITH ('provider'='bedrock','task'='text_generation','bedrock.connection'='$CONNECTION_NAME','bedrock.params.max_tokens'='1024')" "create_model"
+# CREATE MODEL (connection made above via the CLI, so we skip 05's CREATE CONNECTION).
+# WITH clause is provider-specific ($MODEL_WITH), set in the connection step above.
+submit_stmt "CREATE MODEL \`llm_dispatcher_model\` INPUT (\`prompt\` STRING) OUTPUT (\`response\` STRING) WITH ($MODEL_WITH)" "create_model"
 
 submit_file "$FLINK_DIR/06_dispatcher_agent.sql"
 
