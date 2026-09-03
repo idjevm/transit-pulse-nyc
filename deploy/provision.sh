@@ -122,7 +122,14 @@ run "confluent flink compute-pool use $POOL_ID"
 echo "    POOL_ID=$POOL_ID"
 
 log "Bedrock LLM connection: $CONNECTION_NAME"
+# The in-Flink dispatcher agent (CREATE MODEL -> CREATE AGENT -> AI_RUN_AGENT)
+# calls Claude through this Bedrock connection — same idea as the F1 demo's
+# terraform/modules/llm, just created here with the CLI from your deploy.env creds.
+: "${BEDROCK_MODEL_ID:?set BEDROCK_MODEL_ID in deploy.env}"
+: "${BEDROCK_REGION:?set BEDROCK_REGION (or REGION) in deploy.env}"
 BEDROCK_ENDPOINT="https://bedrock-runtime.${BEDROCK_REGION}.amazonaws.com/model/${BEDROCK_MODEL_ID}/invoke"
+echo "    model=$BEDROCK_MODEL_ID  region=$BEDROCK_REGION"
+echo "    access_key=${AWS_BEDROCK_ACCESS_KEY:0:4}…  secret=***  session_token=$([ -n "${AWS_SESSION_TOKEN:-}" ] && echo present || echo none)"
 if ! confluent flink connection list --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null | jq -e --arg n "$CONNECTION_NAME" '.[] | select(.name==$n)' >/dev/null; then
   TOKEN_FLAG=""
   [ -n "${AWS_SESSION_TOKEN:-}" ] && TOKEN_FLAG="--aws-session-token \"$AWS_SESSION_TOKEN\""
@@ -134,6 +141,10 @@ if ! confluent flink connection list --cloud "$CLOUD" --region "$REGION" -o json
 else
   echo "    connection already exists"
 fi
+# The whole AI path depends on this — fail loud now, not later as a model error.
+confluent flink connection list --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null \
+  | jq -e --arg n "$CONNECTION_NAME" '.[] | select(.name==$n)' >/dev/null \
+  || die "Bedrock connection '$CONNECTION_NAME' was not created — check the AWS creds/region in deploy.env and 'confluent flink connection create --help'"
 
 # ---- Flink statement submission ---------------------------------------------
 # Strip -- comments, split a .sql file on ';', submit each statement, and wait
