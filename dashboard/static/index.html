@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Demo dashboard: never serve a stale build from cache. -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>Transit Pulse NYC</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◉</span>
+      <span class="brand-name">TRANSIT PULSE NYC</span>
+      <span class="brand-sub">MTA STREAMING INTELLIGENCE · REAL-TIME</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-val" id="stat-trains">--</span>
+        <span class="stat-label">Trains</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val" id="stat-buses">--</span>
+        <span class="stat-label">Buses</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val" id="stat-alerts">--</span>
+        <span class="stat-label">Active alerts</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val" id="stat-routes">--</span>
+        <span class="stat-label">Routes live</span>
+      </div>
+      <span id="conn" class="conn offline">● CONNECTING</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- Live map -->
+    <section class="card map-card">
+      <h2 class="card-title">
+        LIVE MAP
+        <span class="updated" id="updated"></span>
+      </h2>
+
+      <div class="map-controls">
+        <div class="ctl-group modes">
+          <label class="mode-toggle subway">
+            <input type="checkbox" id="mode-subway" checked />
+            <span class="mode-dot"></span> Subway
+          </label>
+          <label class="mode-toggle bus">
+            <input type="checkbox" id="mode-bus" checked />
+            <span class="mode-dot"></span> Bus
+          </label>
+        </div>
+        <div class="ctl-group">
+          <label class="ctl-label" for="route-filter">Route</label>
+          <select id="route-filter" class="route-select">
+            <option value="">All routes</option>
+          </select>
+        </div>
+        <div class="ctl-group">
+          <label class="chk">
+            <input type="checkbox" id="show-shapes" checked /> Route lines
+          </label>
+        </div>
+        <div class="ctl-group legend">
+          <span class="legend-item"><span class="legend-ico train-ico"></span>train</span>
+          <span class="legend-item"><span class="legend-ico bus-ico">▲</span>bus</span>
+          <span class="legend-item"><span class="legend-ico alert-ico">▲</span>alert</span>
+        </div>
+      </div>
+
+      <div id="map"></div>
+    </section>
+
+    <!-- Right column: alerts + copilot -->
+    <aside class="right-col">
+      <section class="card feed-card">
+        <h2 class="card-title">
+          BUNCHING &amp; GAP ALERTS
+          <span class="tag" id="alerts-tag">0 active</span>
+        </h2>
+        <ul class="feed" id="alerts-feed"></ul>
+      </section>
+
+      <section class="card feed-card">
+        <h2 class="card-title">
+          AI DISPATCHER COPILOT
+          <span class="tag copilot-tag">recommendations</span>
+        </h2>
+        <ul class="feed recs" id="recs-feed"></ul>
+      </section>
+    </aside>
+
+    <!-- Arrivals board -->
+    <section class="card board-card">
+      <h2 class="card-title">NEXT ARRIVALS</h2>
+      <table class="board">
+        <thead>
+          <tr><th>ROUTE</th><th>DIRECTION</th><th>STATION</th><th class="eta-col">ETA</th></tr>
+        </thead>
+        <tbody id="board-body"></tbody>
+      </table>
+    </section>
+
+    <!-- AI Agents console -->
+    <section class="card agents-card">
+      <h2 class="card-title">
+        AI AGENTS
+        <span class="tag copilot-tag">Claude · live-grounded</span>
+      </h2>
+
+      <div class="agent-tabs">
+        <button class="agent-tab active" data-agent="advisor">Rider Advisor</button>
+        <button class="agent-tab" data-agent="operator">Operator Prediction</button>
+        <button class="agent-tab" data-agent="route">Route Designer</button>
+      </div>
+
+      <!-- Rider advisor -->
+      <div class="agent-pane active" id="pane-advisor">
+        <p class="agent-hint">Ask what to watch for on a trip, grounded in the live fleet and alerts.</p>
+        <div class="agent-form">
+          <input type="text" id="adv-origin" class="agent-input" placeholder="From (e.g. Union Sq)" />
+          <input type="text" id="adv-dest" class="agent-input" placeholder="To (e.g. Astoria)" />
+        </div>
+        <textarea id="adv-q" class="agent-textarea" rows="2"
+          placeholder="Optional: what to watch for heading there right now?"></textarea>
+        <button class="agent-run" data-agent="advisor">Ask advisor</button>
+        <div class="agent-out" id="out-advisor"></div>
+      </div>
+
+      <!-- Operator prediction -->
+      <div class="agent-pane" id="pane-operator">
+        <p class="agent-hint">Ask the ops analyst how to improve service and what will degrade next.</p>
+        <textarea id="op-q" class="agent-textarea" rows="2"
+          placeholder="Default: assess health, predict next problems, recommend actions."></textarea>
+        <button class="agent-run" data-agent="operator">Run analysis</button>
+        <div class="agent-out" id="out-operator"></div>
+      </div>
+
+      <!-- Route designer -->
+      <div class="agent-pane" id="pane-route">
+        <p class="agent-hint">Propose a new bus route for a corridor; it draws on the map.</p>
+        <div class="agent-form">
+          <input type="text" id="rt-origin" class="agent-input" placeholder="From (e.g. Red Hook)" />
+          <input type="text" id="rt-dest" class="agent-input" placeholder="To (e.g. Downtown Bklyn)" />
+        </div>
+        <textarea id="rt-constraints" class="agent-textarea" rows="2"
+          placeholder="Optional goals/constraints (e.g. avoid BQE, serve transit deserts)"></textarea>
+        <button class="agent-run" data-agent="route">Design route</button>
+        <div class="agent-out" id="out-route"></div>
+      </div>
+    </section>
+  </main>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

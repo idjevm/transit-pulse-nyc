@@ -1,0 +1,8 @@
+confluent-kafka[avro,schemaregistry]>=2.5.0
+gtfs-realtime-bindings>=1.0.0
+protobuf>=4.25
+requests>=2.31
+fastapi>=0.111
+uvicorn[standard]>=0.30
+anthropic>=0.40
+python-dotenv>=1.0
