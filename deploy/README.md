@@ -50,6 +50,38 @@ and `curl localhost:8000/healthz` should return `{"status":"ok","live":true,...}
 Open **Confluent Cloud → your environment → Stream Lineage** and screenshot it for
 the submission form (that screenshot is required and must be real, not AI made).
 
+## Managed HTTP Source Connector (real JSON feed)
+
+Alongside the GTFS-RT producer, `provision.sh` can stand up a Confluent
+**fully-managed HTTP Source Connector** that polls a JSON endpoint into
+`mta.service_alerts` (JSON Schema registered in Schema Registry) — this is the
+"Use of Confluent Connector(s)" path, and it shows up as a source in Stream
+Lineage.
+
+Enable it in `deploy.env`:
+
+```bash
+export ENABLE_HTTP_SOURCE="true"
+export ALERTS_HTTP_URL="https://data.ny.gov/resource/<dataset-id>.json?\$limit=200&\$order=:updated_at%20DESC"
+```
+
+`ALERTS_HTTP_URL` can be any JSON feed; the example is MTA service alerts on
+data.ny.gov (Socrata, no key for modest polling) — open the dataset, *Export →
+API Endpoint* to get a real `<dataset-id>`. Leave the URL empty (or set
+`ENABLE_HTTP_SOURCE=false`) to skip the connector; the rest of the pipeline is
+unaffected either way. Connector creation is **non-fatal** — if a config/flag is
+off it warns and continues, so it never blocks the core Flink pipeline.
+
+Config template: [`connectors/http_source_service_alerts.json`](connectors/http_source_service_alerts.json).
+The managed-connector config schema is the most version-specific part of this
+repo — if `confluent connect cluster create` rejects a field, build the connector
+once in **Console → Connectors → HTTP Source**, use *Download connector config* to
+get the exact JSON, and drop your values into the template.
+
+To read that topic in Flink, run [`../flink/09_service_alerts.sql`](../flink/09_service_alerts.sql)
+by hand once data is flowing — its columns must match your feed's JSON keys, which
+is why it isn't auto-submitted.
+
 ## Choosing the in-Flink LLM (Bedrock or Gemini)
 
 The dispatcher agent's LLM is set by `LLM_PROVIDER` in `deploy.env`:

@@ -27,7 +27,7 @@ subway.
 | Prize criterion | How we hit it |
 |---|---|
 | **Business impact** | Bunching and gaps are the #1 driver of unreliable transit. Dispatchers make hold/gap-fill calls in real time; riders need accurate ETAs. |
-| **Connectors / ingest** | A producer ingests the *real* MTA GTFS-RT feed (updates every ~5-30s). Swappable for an HTTP Source Connector. |
+| **Connectors / ingest** | Two ingest paths: a producer streams the *real* MTA GTFS-RT feeds (protobuf, ~5-30s), **and** a Confluent fully-managed **HTTP Source Connector** pulls a real JSON service-alerts feed into `mta.service_alerts`. |
 | **Stream processing (Flink)** | Deduplication, ETA transforms, `MATCH_RECOGNIZE` for consecutive-arrival headway, and anomaly detection on the headway series. |
 | **Flink-driven AI** | The dispatcher LLM is a **Flink operator** (`AI_RUN_AGENT`), not a side service — the recommendation is produced by a `CREATE TABLE ... AS SELECT`. |
 | **Stream Governance** | Every topic is Avro + Schema Registry; schemas are created by the Flink `CREATE TABLE` DDL. |
@@ -39,6 +39,7 @@ MTA GTFS-RT ──producers/mta_producer.py──► Kafka (Avro + Schema Regist
   subway + bus                              mta.vehicle_positions   (train pings)
                                             mta.trip_updates         (arrival predictions)
                                             mta.bus_positions        (live bus GPS + heading)
+JSON alerts ──HTTP Source Connector───────► mta.service_alerts       (managed connector, JSON+SR)
         │
         ▼  Confluent Cloud Flink SQL (flink/*.sql, run in order)
    01  CREATE TABLE (register schemas / back topics)
@@ -68,6 +69,7 @@ MTA GTFS-RT ──producers/mta_producer.py──► Kafka (Avro + Schema Regist
 | `mta.headway` | Flink | headway between consecutive trains at a stop |
 | `mta.headway_alerts` | Flink | BUNCHING / GAP alerts |
 | `mta.dispatcher_decisions` | Flink Streaming Agent | LLM dispatcher action + rider message |
+| `mta.service_alerts` | HTTP Source Connector | real JSON service-alerts feed (managed connector, JSON Schema in SR) |
 
 ## Prerequisites
 
@@ -124,9 +126,11 @@ mta-streaming-intelligence/
 ├── requirements.txt
 ├── .env.example
 ├── deploy/                    # one-command Confluent provisioning (CLI-driven)
-│   ├── provision.sh           # build env/cluster/pool/connection + submit Flink
+│   ├── provision.sh           # build env/cluster/pool/connection + submit Flink + connector
 │   ├── teardown.sh            # delete the environment and everything under it
 │   ├── deploy.env.example     # keys + region (copy to deploy.env)
+│   ├── connectors/            # managed connector config templates
+│   │   └── http_source_service_alerts.json
 │   └── README.md
 ├── flink/                     # Flink SQL, run in numeric order
 │   ├── 01_create_tables.sql
@@ -136,7 +140,8 @@ mta-streaming-intelligence/
 │   ├── 05_create_model.sql
 │   ├── 06_dispatcher_agent.sql
 │   ├── 07_bus_positions.sql   # live bus GPS source table
-│   └── 08_headway_forecast.sql # predictive bunching/gap (operator prediction)
+│   ├── 08_headway_forecast.sql # predictive bunching/gap (operator prediction)
+│   └── 09_service_alerts.sql  # source table over the HTTP Source Connector topic
 ├── producers/
 │   ├── config.py              # env-driven settings (mirrors datagen/config.py)
 │   ├── feeds.py               # MTA subway GTFS-RT feed URLs

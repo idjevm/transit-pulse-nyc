@@ -1,0 +1,21 @@
+{
+  "name": "mta-service-alerts-http-source",
+  "config": {
+    "connector.class": "HttpSource",
+    "name": "mta-service-alerts-http-source",
+
+    "kafka.auth.mode": "KAFKA_API_KEY",
+    "kafka.api.key": "",
+    "kafka.api.secret": "",
+
+    "url": "",
+    "http.request.method": "GET",
+    "http.offset.mode": "SIMPLE",
+    "request.interval.ms": "60000",
+
+    "topic.name.pattern": "mta.service_alerts",
+    "output.data.format": "JSON_SR",
+
+    "tasks.max": "1"
+  }
+}

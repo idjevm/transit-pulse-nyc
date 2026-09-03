@@ -228,6 +228,32 @@ submit_stmt "CREATE MODEL \`llm_dispatcher_model\` INPUT (\`prompt\` STRING) OUT
 
 submit_file "$FLINK_DIR/06_dispatcher_agent.sql"
 
+# ---- Optional: managed HTTP Source Connector (real JSON feed) ----------------
+# Demonstrates the Confluent managed-connector ingest path alongside the live
+# producer: polls a JSON endpoint (ALERTS_HTTP_URL, e.g. MTA service alerts) and
+# lands records in mta.service_alerts with a JSON Schema in Schema Registry — so
+# it shows in Stream Lineage as a real source connector. Gated + non-fatal: a
+# config/flag hiccup here must never sink the core Flink pipeline above.
+CONN_TEMPLATE="$SCRIPT_DIR/connectors/http_source_service_alerts.json"
+if [ "${ENABLE_HTTP_SOURCE:-true}" = "true" ] && [ -n "${ALERTS_HTTP_URL:-}" ] && [ -f "$CONN_TEMPLATE" ]; then
+  log "HTTP Source connector: mta-service-alerts-http-source"
+  echo "    url=$ALERTS_HTTP_URL  topic=mta.service_alerts"
+  CONN_CFG="$(mktemp)"
+  # jq (a required dep) safely injects creds + URL, handling any special chars.
+  jq --arg k "$KAFKA_API_KEY" --arg s "$KAFKA_API_SECRET" --arg u "$ALERTS_HTTP_URL" \
+    '.config."kafka.api.key"=$k | .config."kafka.api.secret"=$s | .config.url=$u' \
+    "$CONN_TEMPLATE" > "$CONN_CFG"
+  if confluent connect cluster create --config-file "$CONN_CFG" -o json >/dev/null 2>/tmp/mta_conn_err; then
+    echo "    -> connector submitted (check: confluent connect cluster list)"
+  else
+    printf '\033[1;33m    WARN: connector create failed — core pipeline is unaffected.\n    %s\n    Fix flags/config (Console > Connectors > HTTP Source can generate the exact\n    JSON), then re-run, or set ENABLE_HTTP_SOURCE=false to skip.\033[0m\n' \
+      "$(tr '\n' ' ' < /tmp/mta_conn_err)" >&2
+  fi
+  rm -f "$CONN_CFG" /tmp/mta_conn_err
+else
+  echo "    (skipping HTTP Source connector: set ENABLE_HTTP_SOURCE=true and ALERTS_HTTP_URL in deploy.env to enable)"
+fi
+
 # ---- write .env for the producer + dashboard --------------------------------
 log "Writing $OUT_ENV"
 cat > "$OUT_ENV" <<EOF

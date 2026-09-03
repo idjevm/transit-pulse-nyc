@@ -26,10 +26,13 @@ can toggle Subway/Bus and filter to a specific line, and bunching/gap alerts app
 as pulsing markers on the map.
 
 ## Confluent platform usage
-- **Connectors / ingest:** a producer streams the live MTA GTFS-RT feeds into
-  Kafka — subway positions + trip updates (`mta.vehicle_positions`,
-  `mta.trip_updates`) and ~2,700 live buses with real GPS (`mta.bus_positions`).
-  Drop-in replaceable with an HTTP Source Connector.
+- **Connectors / ingest:** two paths. (1) A producer streams the live MTA GTFS-RT
+  feeds (protobuf) into Kafka — subway positions + trip updates
+  (`mta.vehicle_positions`, `mta.trip_updates`) and ~2,700 live buses with real GPS
+  (`mta.bus_positions`). (2) A Confluent **fully-managed HTTP Source Connector**
+  polls a real JSON service-alerts feed into `mta.service_alerts` (provisioned by
+  `deploy/provision.sh` from `deploy/connectors/http_source_service_alerts.json`),
+  so the managed-connector path is demonstrated, not just claimed.
 - **Stream Governance / Schema Registry:** every topic is Avro; schemas are created
   and registered by the Flink `CREATE TABLE` DDL, and the producer serializes
   against them (`use.latest.version=true`, `auto.register.schemas=false`).
