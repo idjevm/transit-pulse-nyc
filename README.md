@@ -86,6 +86,8 @@ and every Flink statement in order), then writes `.env`.
 
 ```bash
 pip install -r requirements.txt
+python scripts/smoke_test.py                     # (no Confluent needed) proves the live feed decodes
+
 cp deploy/deploy.env.example deploy/deploy.env   # fill in keys + region
 ./deploy/provision.sh                            # builds everything, writes .env
 
@@ -94,6 +96,16 @@ python scripts/build_shapes.py        # subway route-line geometry for the map
 python producers/mta_producer.py      # stream real MTA feed -> Kafka (subway + buses)
 uvicorn dashboard.app:app --port 8000 # dashboard on http://localhost:8000
 ```
+
+### Verify it's working
+
+```bash
+python scripts/smoke_test.py          # prints live vehicle/trip counts per feed (no Kafka)
+curl localhost:8000/healthz           # {"status":"ok","live":true,"counts":{...}}
+```
+
+Then open http://localhost:8000 — trains and buses should be moving on the map,
+the arrivals board fills, and bunching/gap alerts appear as pulsing markers.
 
 Teardown: `./deploy/teardown.sh`. Full details and the manual (click-through
 Flink workspace) alternative are in [`deploy/README.md`](deploy/README.md).

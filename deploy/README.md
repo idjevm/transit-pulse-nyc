@@ -38,6 +38,9 @@ python producers/mta_producer.py           # subway + ~2.7k live buses
 uvicorn dashboard.app:app --port 8000       # dashboard on :8000
 ```
 
+Verify: `python scripts/smoke_test.py` prints live feed counts (no Kafka needed),
+and `curl localhost:8000/healthz` should return `{"status":"ok","live":true,...}`.
+
 Open **Confluent Cloud → your environment → Stream Lineage** and screenshot it for
 the submission form (that screenshot is required and must be real, not AI made).
 
@@ -57,3 +60,8 @@ the submission form (that screenshot is required and must be real, not AI made).
   the same statements (it creates the Bedrock connection via the CLI, so it skips
   the `CREATE CONNECTION` block in `05_create_model.sql` and submits only the
   `CREATE MODEL`).
+- **Manual (no-CLI) path:** if you build the Confluent side by hand instead of
+  running `provision.sh`, that script is also what writes `../.env`. So do it
+  yourself first — `cp .env.example .env` from the repo root and fill in the
+  cluster bootstrap, Schema Registry URL, and both API key/secret pairs from the
+  Console — before running the producer or dashboard.
