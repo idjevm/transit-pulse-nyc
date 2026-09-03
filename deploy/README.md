@@ -9,11 +9,14 @@ command too.
 ```bash
 brew install confluentinc/tap/cli jq
 confluent version    # v4+ recommended
+confluent login      # browser / SSO — provision.sh reuses this session
 ```
 
 You also need:
-- A **Cloud API key** (Console → top-right menu → *Cloud API keys*), created by an
-  OrganizationAdmin. This authenticates the CLI non-interactively.
+- **Confluent Cloud auth.** Simplest on a Mac: just `confluent login` (browser/SSO)
+  and the script reuses that session. For a fully non-interactive run instead, put a
+  **Cloud API key** (Console → top-right menu → *Cloud API keys*, created by an
+  OrganizationAdmin) in `deploy.env` — the script logs in with it automatically.
 - **AWS Bedrock** credentials with `bedrock:InvokeModel` for the Claude model (the
   Flink AI agents call the LLM through a Bedrock connection).
 - An **Anthropic API key** for the interactive agents (rider/operator/route

@@ -41,8 +41,9 @@ command -v jq >/dev/null || die "jq not found (brew install jq)"
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
-: "${CONFLUENT_CLOUD_API_KEY:?set in deploy.env}"
-: "${CONFLUENT_CLOUD_API_SECRET:?set in deploy.env}"
+# Confluent auth is flexible (see the auth step below): an existing CLI session,
+# a Cloud API key in deploy.env, or interactive login all work. Only the Bedrock
+# credentials for the in-Flink LLM are strictly required here.
 : "${AWS_BEDROCK_ACCESS_KEY:?set in deploy.env}"
 : "${AWS_BEDROCK_SECRET_KEY:?set in deploy.env}"
 
@@ -58,8 +59,21 @@ CONNECTION_NAME="llm-dispatcher-connection"
 
 # ---- find-or-create helpers (idempotent by display name) --------------------
 
-log "Authenticating (uses CONFLUENT_CLOUD_API_KEY/SECRET from deploy.env)"
-run "confluent login --no-browser >/dev/null 2>&1 || true"
+# Auth precedence: (1) reuse an active CLI session if you already ran
+# `confluent login` on your Mac; (2) else non-interactive with the Cloud API key
+# from deploy.env; (3) else open interactive (browser/SSO) login.
+log "Authenticating with Confluent Cloud"
+if confluent environment list -o json >/dev/null 2>&1; then
+  echo "    reusing your current confluent CLI session"
+elif [ -n "${CONFLUENT_CLOUD_API_KEY:-}" ] && [ -n "${CONFLUENT_CLOUD_API_SECRET:-}" ]; then
+  echo "    logging in non-interactively with the Cloud API key from deploy.env"
+  run "confluent login >/dev/null 2>&1 || true"
+else
+  echo "    no active session and no Cloud API key set — starting interactive login"
+  run "confluent login"
+fi
+confluent environment list -o json >/dev/null 2>&1 \
+  || die "not authenticated — run 'confluent login' (or set the Cloud API key in deploy.env) and re-run"
 
 log "Environment: $ENV_NAME"
 ENV_ID="$(confluent environment list -o json | jq -r --arg n "$ENV_NAME" '.[] | select(.name==$n) | .id' | head -1)"

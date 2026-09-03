@@ -73,8 +73,9 @@ MTA GTFS-RT ──producers/mta_producer.py──► Kafka (Avro + Schema Regist
 
 - Python 3.11+ and, for one-command provisioning, the `confluent` CLI (v4+) + `jq`
   (`brew install confluentinc/tap/cli jq`).
-- Confluent Cloud: a Cloud API key (the provisioner creates the cluster, Schema
-  Registry, Flink pool, and connection for you).
+- Confluent Cloud auth: just `confluent login` (browser/SSO) — the provisioner
+  reuses your session and creates the cluster, Schema Registry, Flink pool, and
+  connection for you. A Cloud API key works too for a non-interactive run.
 - **AWS Bedrock** (Claude) credentials for the in-Flink dispatcher LLM, and an
   **Anthropic API key** for the interactive agents. See `flink/05_create_model.sql`.
 

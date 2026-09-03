@@ -11,7 +11,15 @@ ENV_NAME="${ENV_NAME:-MTA-STREAMING-INTELLIGENCE}"
 command -v confluent >/dev/null || { echo "confluent CLI not found"; exit 1; }
 command -v jq >/dev/null || { echo "jq not found"; exit 1; }
 
-confluent login --no-browser >/dev/null 2>&1 || true
+# Reuse an active CLI session; else non-interactive (API key) or interactive login.
+if ! confluent environment list -o json >/dev/null 2>&1; then
+  if [ -n "${CONFLUENT_CLOUD_API_KEY:-}" ] && [ -n "${CONFLUENT_CLOUD_API_SECRET:-}" ]; then
+    confluent login >/dev/null 2>&1 || true
+  else
+    confluent login
+  fi
+fi
+confluent environment list -o json >/dev/null 2>&1 || { echo "not authenticated — run 'confluent login'"; exit 1; }
 ENV_ID="$(confluent environment list -o json | jq -r --arg n "$ENV_NAME" '.[] | select(.name==$n) | .id' | head -1)"
 [ -z "$ENV_ID" ] && { echo "no environment named $ENV_NAME — nothing to do"; exit 0; }
 
