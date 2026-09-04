@@ -14,18 +14,20 @@
 -- board tight.
 
 CREATE TABLE IF NOT EXISTS `mta_arrival_estimates` (
-  `trip_id`      STRING,
-  `route_id`     STRING,
-  `direction`    STRING,
-  `stop_id`      STRING,
-  `stop_name`    STRING,
-  `stop_lat`     DOUBLE,
-  `stop_lon`     DOUBLE,
+  `trip_id`       STRING,
+  `stop_id`       STRING,
+  `route_id`      STRING,
+  `direction`     STRING,
+  `stop_name`     STRING,
+  `stop_lat`      DOUBLE,
+  `stop_lon`      DOUBLE,
   `arrival_epoch` BIGINT,
-  `eta_seconds`  BIGINT,
-  `event_time`   TIMESTAMP(3)
-) WITH (
-  'changelog.mode' = 'append',
+  `eta_seconds`   BIGINT,
+  `event_time`    TIMESTAMP(3),
+  PRIMARY KEY (`trip_id`, `stop_id`) NOT ENFORCED
+) DISTRIBUTED BY (`trip_id`, `stop_id`) INTO 3 BUCKETS
+WITH (
+  'changelog.mode' = 'upsert',
   'connector' = 'confluent',
   'value.format' = 'avro-registry'
 );
@@ -35,7 +37,7 @@ WITH latest AS (
   SELECT *
   FROM (
     SELECT
-      trip_id, route_id, direction, stop_id, stop_name, stop_lat, stop_lon,
+      trip_id, stop_id, route_id, direction, stop_name, stop_lat, stop_lon,
       arrival_epoch, event_time,
       ROW_NUMBER() OVER (PARTITION BY trip_id, stop_id ORDER BY event_time DESC) AS rn
     FROM `mta_trip_updates`
@@ -44,7 +46,7 @@ WITH latest AS (
   WHERE rn = 1
 )
 SELECT
-  trip_id, route_id, direction, stop_id, stop_name, stop_lat, stop_lon,
+  trip_id, stop_id, route_id, direction, stop_name, stop_lat, stop_lon,
   arrival_epoch,
   arrival_epoch - UNIX_TIMESTAMP() AS eta_seconds,
   event_time

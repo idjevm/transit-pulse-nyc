@@ -16,12 +16,15 @@
 -- so this stream is governed the same way as the Avro topics.
 
 CREATE TABLE IF NOT EXISTS `mta_service_alerts` (
-  `alert_id`    STRING COMMENT 'Feed-provided id (adjust to your feed key)',
-  `route_id`    STRING COMMENT 'Affected route/line, if present',
-  `header`      STRING COMMENT 'Short alert headline',
-  `description` STRING COMMENT 'Full alert text',
-  `status`      STRING COMMENT 'e.g. active / planned / resolved',
-  `updated_at`  STRING COMMENT 'Feed timestamp as provided (string; CAST as needed)'
+  `alert_id`      STRING COMMENT 'Feed alert id',
+  `event_id`      STRING COMMENT 'Feed event id',
+  `update_number` STRING COMMENT 'Alert update sequence number',
+  `agency`        STRING COMMENT 'e.g. NYCT Subway',
+  `affected`      STRING COMMENT 'Affected subway lines (e.g. A | H)',
+  `status_label`  STRING COMMENT 'Alert status (e.g. delays, planned work)',
+  `header`        STRING COMMENT 'Short alert headline',
+  `description`   STRING COMMENT 'Full alert details',
+  `date`          BIGINT COMMENT 'Alert timestamp in epoch milliseconds'
 )
 DISTRIBUTED INTO 3 BUCKETS
 WITH (

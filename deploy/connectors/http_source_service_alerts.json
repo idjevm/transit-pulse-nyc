@@ -10,10 +10,11 @@
 
     "url": "",
     "http.request.method": "GET",
-    "http.offset.mode": "SIMPLE",
+    "http.offset.mode": "SIMPLE_INCREMENTING",
+    "http.initial.offset": "0",
     "request.interval.ms": "60000",
 
-    "topic.name.pattern": "mta.service_alerts",
+    "topic.name.pattern": "mta_service_alerts",
     "output.data.format": "JSON_SR",
 
     "tasks.max": "1"

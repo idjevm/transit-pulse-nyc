@@ -27,16 +27,32 @@ MODEL = os.environ.get("DISPATCHER_MODEL", "claude-haiku-4-5-20251001")
 _MAX_LISTED = 40  # cap how many rows of each kind we feed the model
 
 
-def _client():
+def _gemini_client():
+    """Lazily build a Google Gemini client. Returns None if unavailable."""
+    key = (
+        os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLEAI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+    )
+    if not key:
+        return None
+    try:
+        from google import genai
+        return genai.Client(api_key=key)
+    except Exception as exc:
+        log.warning("gemini client unavailable: %s", exc)
+        return None
+
+
+def _anthropic_client():
     """Lazily build an Anthropic client. Returns None if unavailable."""
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return None
     try:
         from anthropic import Anthropic
-
         return Anthropic(api_key=key)
-    except Exception as exc:  # SDK missing / import failure
+    except Exception as exc:
         log.warning("anthropic client unavailable: %s", exc)
         return None
 
@@ -101,25 +117,45 @@ def _summarize_state(snap: dict) -> str:
 
 
 def _ask(system: str, user: str, max_tokens: int = 900) -> tuple[str | None, str | None]:
-    """Single-shot Claude call. Returns (text, error)."""
-    client = _client()
-    if client is None:
-        return None, (
-            "Claude is not configured. Set ANTHROPIC_API_KEY (and install the "
-            "`anthropic` package) to enable the interactive agents."
-        )
-    try:
-        msg = client.messages.create(
-            model=MODEL,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-        return text.strip(), None
-    except Exception as exc:
-        log.exception("claude call failed")
-        return None, f"Claude request failed: {exc}"
+    """Single-shot LLM call. Uses Gemini Pro if configured, falls back to Anthropic."""
+    g_client = _gemini_client()
+    if g_client is not None:
+        try:
+            from google.genai import types
+            gemini_model = os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-pro")
+            resp = g_client.models.generate_content(
+                model=gemini_model,
+                contents=user,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            return (resp.text or "").strip(), None
+        except Exception as exc:
+            log.exception("gemini call failed")
+            return None, f"Gemini request failed: {exc}"
+
+    a_client = _anthropic_client()
+    if a_client is not None:
+        try:
+            claude_model = os.environ.get("DISPATCHER_MODEL", "claude-haiku-4-5-20251001")
+            msg = a_client.messages.create(
+                model=claude_model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+            return text.strip(), None
+        except Exception as exc:
+            log.exception("claude call failed")
+            return None, f"Claude request failed: {exc}"
+
+    return None, (
+        "AI model is not configured. Set GEMINI_API_KEY (or GOOGLEAI_API_KEY) in your environment / .env "
+        "to enable the interactive transit agents with Gemini Pro."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -209,7 +245,7 @@ def route_designer(snap: dict, origin: str, destination: str, constraints: str =
     if constraints:
         parts.append(f"Constraints/goals: {constraints}")
     parts.append("\nLIVE SYSTEM STATE (for demand/gap signals):\n" + ctx)
-    text, err = _ask(ROUTE_DESIGNER_SYSTEM, "\n".join(parts), max_tokens=1100)
+    text, err = _ask(ROUTE_DESIGNER_SYSTEM, "\n".join(parts), max_tokens=2048)
     if err:
         return {"ok": False, "error": err}
 
@@ -223,18 +259,11 @@ def route_designer(snap: dict, origin: str, destination: str, constraints: str =
 def _parse_route_json(text: str) -> dict | None:
     if not text:
         return None
-    # tolerate accidental ```json fences
-    t = text.strip()
-    if t.startswith("```"):
-        t = t.strip("`")
-        t = t[t.find("{") : t.rfind("}") + 1]
-    else:
-        start, end = t.find("{"), t.rfind("}")
-        if start == -1 or end == -1:
-            return None
-        t = t[start : end + 1]
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
     try:
-        obj = json.loads(t)
+        obj = json.loads(text[start : end + 1])
     except ValueError:
         return None
     wp = obj.get("waypoints")

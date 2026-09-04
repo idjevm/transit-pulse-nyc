@@ -58,8 +58,8 @@ CONNECTION_NAME="llm-dispatcher-connection"
 
 # In-Flink LLM provider: bedrock (default) or googleai (Google AI Studio / Gemini).
 LLM_PROVIDER="$(echo "${LLM_PROVIDER:-bedrock}" | tr '[:upper:]' '[:lower:]')"
-GEMINI_MODEL_ID="${GEMINI_MODEL_ID:-gemini-2.0-flash}"
-GOOGLEAI_ENDPOINT="${GOOGLEAI_ENDPOINT:-https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL_ID}:generateContent}"
+GEMINI_MODEL_ID="${GEMINI_MODEL_ID:-gemini-pro-latest}"
+GOOGLEAI_ENDPOINT="${GOOGLEAI_ENDPOINT:-https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent}"
 
 # ---- find-or-create helpers (idempotent by display name) --------------------
 
@@ -110,7 +110,7 @@ KAFKA_API_KEY="$(echo "$KAFKA_KEY_JSON" | jq -r '.api_key // .key')"
 KAFKA_API_SECRET="$(echo "$KAFKA_KEY_JSON" | jq -r '.api_secret // .secret')"
 
 log "Schema Registry"
-SR_ID="$(confluent schema-registry cluster describe -o json | jq -r '.cluster_id // .id')"
+SR_ID="$(confluent schema-registry cluster describe -o json | jq -r '.cluster // .cluster_id // .id')"
 SR_URL="$(confluent schema-registry cluster describe -o json | jq -r '.endpoint_url // .endpoint')"
 SR_KEY_JSON="$(confluent api-key create --resource "$SR_ID" --description "mta-sr" -o json)"
 SR_API_KEY="$(echo "$SR_KEY_JSON" | jq -r '.api_key // .key')"
@@ -123,6 +123,7 @@ if [ -z "$POOL_ID" ]; then
   POOL_ID="$(confluent flink compute-pool create "$POOL_NAME" --cloud "$CLOUD" --region "$REGION" --max-cfu "$FLINK_MAX_CFU" -o json | jq -r '.id')"
 fi
 run "confluent flink compute-pool use $POOL_ID"
+run "confluent flink region use --cloud \"$CLOUD\" --region \"$REGION\""
 echo "    POOL_ID=$POOL_ID"
 
 log "LLM connection: $CONNECTION_NAME (provider=$LLM_PROVIDER)"
@@ -179,19 +180,29 @@ submit_stmt() {
   sql="$(printf '%s' "$sql" | sed -e 's/[[:space:]]*$//')"
   [ -z "$sql" ] && return 0
   log "Flink statement: $label"
-  local name="mta-$(echo "$label" | tr '[:upper:] _.' '[:lower:]---')-$RANDOM"
+  local name="mta-$(echo "$label" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | tr -s '-' | sed 's/^-//; s/-$//')-$RANDOM"
   confluent flink statement create "$name" \
     --sql "$sql" \
     --compute-pool "$POOL_ID" \
-    --database "$CLUSTER_NAME" \
-    --catalog "$ENV_NAME" \
+    --database "$CLUSTER_ID" \
+    --environment "$ENV_ID" \
+    --cloud "$CLOUD" \
+    --region "$REGION" \
     -o json >/dev/null
   for _ in $(seq 1 40); do
     local phase
-    phase="$(confluent flink statement describe "$name" -o json 2>/dev/null | jq -r '.status.phase // .phase // "PENDING"')"
+    phase="$(confluent flink statement describe "$name" --environment "$ENV_ID" --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null | jq -r 'if (.status | type) == "object" then .status.phase else .status end // .phase // "PENDING"')"
     case "$phase" in
       RUNNING|COMPLETED) echo "    -> $phase"; return 0 ;;
-      FAILED|FAILING)    die "statement '$label' entered $phase — see: confluent flink statement describe $name" ;;
+      FAILED|FAILING)
+        local detail
+        detail="$(confluent flink statement describe "$name" --environment "$ENV_ID" --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null | jq -r '.status_detail // ""')"
+        if echo "$detail" | grep -qi "already exists"; then
+          echo "    -> already exists (continuing)"
+          confluent flink statement delete "$name" --environment "$ENV_ID" --cloud "$CLOUD" --region "$REGION" --force >/dev/null 2>&1 || true
+          return 0
+        fi
+        die "statement '$label' entered $phase — see: confluent flink statement describe $name --environment $ENV_ID --cloud $CLOUD --region $REGION" ;;
     esac
     sleep 3
   done
@@ -209,7 +220,7 @@ submit_file() {
   for stmt in $cleaned; do
     if [ -n "$(echo "$stmt" | tr -d '[:space:]')" ]; then
       i=$((i+1))
-      submit_stmt "$stmt" "$(basename "$file" .sql)#$i"
+      submit_stmt "$stmt" "$(basename "$file" .sql)-$i"
     fi
   done
 }
@@ -237,19 +248,31 @@ submit_file "$FLINK_DIR/06_dispatcher_agent.sql"
 CONN_TEMPLATE="$SCRIPT_DIR/connectors/http_source_service_alerts.json"
 if [ "${ENABLE_HTTP_SOURCE:-true}" = "true" ] && [ -n "${ALERTS_HTTP_URL:-}" ] && [ -f "$CONN_TEMPLATE" ]; then
   log "HTTP Source connector: mta-service-alerts-http-source"
-  echo "    url=$ALERTS_HTTP_URL  topic=mta.service_alerts"
-  CONN_CFG="$(mktemp)"
-  # jq (a required dep) safely injects creds + URL, handling any special chars.
-  jq --arg k "$KAFKA_API_KEY" --arg s "$KAFKA_API_SECRET" --arg u "$ALERTS_HTTP_URL" \
-    '.config."kafka.api.key"=$k | .config."kafka.api.secret"=$s | .config.url=$u' \
-    "$CONN_TEMPLATE" > "$CONN_CFG"
-  if confluent connect cluster create --config-file "$CONN_CFG" -o json >/dev/null 2>/tmp/mta_conn_err; then
-    echo "    -> connector submitted (check: confluent connect cluster list)"
+  echo "    url=$ALERTS_HTTP_URL  topic=mta_service_alerts"
+  
+  # Ensure target topic exists
+  confluent kafka topic create mta_service_alerts --cluster "$CLUSTER_ID" --environment "$ENV_ID" 2>/dev/null || true
+
+  # Set subject compatibility to NONE so dynamic open-data JSON schemas register smoothly
+  curl -s -X PUT -u "$SR_API_KEY:$SR_API_SECRET" -H "Content-Type: application/json" \
+    "$SR_URL/config/mta_service_alerts-value" -d '{"compatibility": "NONE"}' >/dev/null 2>&1 || true
+
+  # Check if connector already exists
+  if confluent connect cluster list --cluster "$CLUSTER_ID" --environment "$ENV_ID" 2>/dev/null | grep -q "mta-service-alerts-http-source"; then
+    echo "    -> connector already active (status: RUNNING)"
   else
-    printf '\033[1;33m    WARN: connector create failed — core pipeline is unaffected.\n    %s\n    Fix flags/config (Console > Connectors > HTTP Source can generate the exact\n    JSON), then re-run, or set ENABLE_HTTP_SOURCE=false to skip.\033[0m\n' \
-      "$(tr '\n' ' ' < /tmp/mta_conn_err)" >&2
+    CONN_CFG="$(mktemp)"
+    jq --arg k "$KAFKA_API_KEY" --arg s "$KAFKA_API_SECRET" --arg u "$ALERTS_HTTP_URL" \
+      '.config."kafka.api.key"=$k | .config."kafka.api.secret"=$s | .config.url=$u' \
+      "$CONN_TEMPLATE" > "$CONN_CFG"
+    if confluent connect cluster create --config-file "$CONN_CFG" --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json >/dev/null 2>/tmp/mta_conn_err; then
+      echo "    -> connector submitted (check: confluent connect cluster list)"
+    else
+      printf '\033[1;33m    WARN: connector create failed — core pipeline is unaffected.\n    %s\n    Fix flags/config, then re-run, or set ENABLE_HTTP_SOURCE=false to skip.\033[0m\n' \
+        "$(tr '\n' ' ' < /tmp/mta_conn_err)" >&2
+    fi
+    rm -f "$CONN_CFG" /tmp/mta_conn_err
   fi
-  rm -f "$CONN_CFG" /tmp/mta_conn_err
 else
   echo "    (skipping HTTP Source connector: set ENABLE_HTTP_SOURCE=true and ALERTS_HTTP_URL in deploy.env to enable)"
 fi
@@ -274,12 +297,12 @@ POLL_INTERVAL_SECONDS=15
 BUS_ENABLED=true
 BUS_AGENCIES=all
 
-TOPIC_VEHICLE_POSITIONS=mta.vehicle_positions
-TOPIC_TRIP_UPDATES=mta.trip_updates
-TOPIC_BUS_POSITIONS=mta.bus_positions
-TOPIC_ARRIVAL_ESTIMATES=mta.arrival_estimates
-TOPIC_HEADWAY_ALERTS=mta.headway_alerts
-TOPIC_RECOMMENDATIONS=mta.dispatcher_decisions
+TOPIC_VEHICLE_POSITIONS=mta_vehicle_positions
+TOPIC_TRIP_UPDATES=mta_trip_updates
+TOPIC_BUS_POSITIONS=mta_bus_positions
+TOPIC_ARRIVAL_ESTIMATES=mta_arrival_estimates
+TOPIC_HEADWAY_ALERTS=mta_headway_alerts
+TOPIC_RECOMMENDATIONS=mta_dispatcher_decisions
 DASHBOARD_GROUP_ID=mta-dashboard
 EOF
 

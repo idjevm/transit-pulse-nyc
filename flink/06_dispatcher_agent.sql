@@ -28,7 +28,7 @@ ACTION RULES — apply in order:
 1. alert_type = BUNCHING and headway < 90s  -> Action: HOLD TRAIN (hold the trailing train to restore spacing).
 2. alert_type = BUNCHING and headway 90-150s -> Action: MONITOR (spacing tightening but not critical yet).
 3. alert_type = GAP and headway > 1200s     -> Action: GAP FILL (short-turn or add service to close the gap).
-4. alert_type = GAP and headway 900-1200s   -> Action: MONITOR (gap opening; watch the next train).
+4. alert_type = GAP and headway 900-1200s   -> Action: MONITOR (gap opening, watch the next train).
 5. Otherwise                                 -> Action: MONITOR.
 
 Never invent stations, trains, or times not present in the input. Keep the Rider

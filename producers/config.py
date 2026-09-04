@@ -21,12 +21,12 @@ SR_API_KEY = os.environ.get("SCHEMA_REGISTRY_API_KEY", "")
 SR_API_SECRET = os.environ.get("SCHEMA_REGISTRY_API_SECRET", "")
 
 # ---- Topics (defaults match flink/01_create_tables.sql) ----
-TOPIC_VEHICLE_POSITIONS = os.environ.get("TOPIC_VEHICLE_POSITIONS", "mta.vehicle_positions")
-TOPIC_TRIP_UPDATES = os.environ.get("TOPIC_TRIP_UPDATES", "mta.trip_updates")
-TOPIC_ARRIVAL_ESTIMATES = os.environ.get("TOPIC_ARRIVAL_ESTIMATES", "mta.arrival_estimates")
-TOPIC_HEADWAY_ALERTS = os.environ.get("TOPIC_HEADWAY_ALERTS", "mta.headway_alerts")
-TOPIC_DECISIONS = os.environ.get("TOPIC_RECOMMENDATIONS", "mta.dispatcher_decisions")
-TOPIC_BUS_POSITIONS = os.environ.get("TOPIC_BUS_POSITIONS", "mta.bus_positions")
+TOPIC_VEHICLE_POSITIONS = os.environ.get("TOPIC_VEHICLE_POSITIONS", "mta_vehicle_positions")
+TOPIC_TRIP_UPDATES = os.environ.get("TOPIC_TRIP_UPDATES", "mta_trip_updates")
+TOPIC_ARRIVAL_ESTIMATES = os.environ.get("TOPIC_ARRIVAL_ESTIMATES", "mta_arrival_estimates")
+TOPIC_HEADWAY_ALERTS = os.environ.get("TOPIC_HEADWAY_ALERTS", "mta_headway_alerts")
+TOPIC_DECISIONS = os.environ.get("TOPIC_RECOMMENDATIONS", "mta_dispatcher_decisions")
+TOPIC_BUS_POSITIONS = os.environ.get("TOPIC_BUS_POSITIONS", "mta_bus_positions")
 
 # ---- Producer tuning ----
 MTA_FEEDS = os.environ.get("MTA_FEEDS", "all")

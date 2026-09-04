@@ -36,24 +36,42 @@ CREATE TABLE IF NOT EXISTS `mta_headway_forecast` (
 );
 
 INSERT INTO `mta_headway_forecast`
-WITH trended AS (
+WITH arrivals AS (
   SELECT
-    route_id, direction, stop_id, stop_name, stop_lat, stop_lon,
-    curr_trip, headway_seconds, arrival_time,
-    LAG(headway_seconds) OVER (
-      PARTITION BY route_id, direction, stop_id
-      ORDER BY arrival_time
-    ) AS prev_headway_seconds
-  FROM `mta_headway`
+    trip_id, route_id, direction, stop_id, stop_name, stop_lat, stop_lon, event_time
+  FROM (
+    SELECT
+      trip_id, route_id, direction, stop_id, stop_name, stop_lat, stop_lon, event_time,
+      ROW_NUMBER() OVER (PARTITION BY trip_id, stop_id ORDER BY event_time ASC) AS rn
+    FROM `mta_vehicle_positions`
+    WHERE current_status = 'STOPPED_AT'
+  )
+  WHERE rn = 1
 ),
-projected AS (
+triplets AS (
   SELECT
     route_id, direction, stop_id, stop_name, stop_lat, stop_lon,
-    curr_trip, headway_seconds, prev_headway_seconds, arrival_time,
-    -- linear extrapolation of the next headway from the last two observations
-    headway_seconds + (headway_seconds - prev_headway_seconds) AS predicted_headway
-  FROM trended
-  WHERE prev_headway_seconds IS NOT NULL
+    curr_trip, headway_seconds, prev_headway_seconds,
+    headway_seconds + (headway_seconds - prev_headway_seconds) AS predicted_headway,
+    arrival_time
+  FROM arrivals
+  MATCH_RECOGNIZE (
+    PARTITION BY route_id, direction, stop_id
+    ORDER BY event_time
+    MEASURES
+      C.trip_id AS curr_trip,
+      C.stop_name AS stop_name,
+      C.stop_lat AS stop_lat,
+      C.stop_lon AS stop_lon,
+      TIMESTAMPDIFF(SECOND, B.event_time, C.event_time) AS headway_seconds,
+      TIMESTAMPDIFF(SECOND, A.event_time, B.event_time) AS prev_headway_seconds,
+      C.event_time AS arrival_time
+    AFTER MATCH SKIP TO NEXT ROW
+    PATTERN (A B C)
+    DEFINE
+      B AS B.trip_id <> A.trip_id,
+      C AS C.trip_id <> B.trip_id
+  )
 )
 SELECT
   route_id, direction, stop_id, stop_name, stop_lat, stop_lon,
@@ -64,8 +82,7 @@ SELECT
     ELSE 'STABLE'
   END AS forecast_type,
   arrival_time
-FROM projected
--- only surface the trend when it is meaningfully moving toward a problem
+FROM triplets
 WHERE (predicted_headway < 150 AND headway_seconds >= 150)
    OR (predicted_headway > 900 AND headway_seconds <= 900);
 
