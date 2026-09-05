@@ -79,10 +79,12 @@ fi
 # 1. Managed Connector
 if [ -n "$CLUSTER_ID" ]; then
   log "1. Removing HTTP Source Connector..."
-  CONN_ID="$(confluent connect cluster list --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json 2>/dev/null | jq -r '.[] | select(.name=="mta-service-alerts-http-source") | .id' | head -1)"
-  if [ -n "$CONN_ID" ]; then
-    confluent connect cluster delete "$CONN_ID" --cluster "$CLUSTER_ID" --environment "$ENV_ID" --force
-    echo "   -> Deleted connector $CONN_ID (mta-service-alerts-http-source)"
+  CONN_IDS="$(confluent connect cluster list --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json 2>/dev/null | jq -r '.[] | select(.name | test("^(mta-|service-alerts)")) | .id')"
+  if [ -n "$CONN_IDS" ]; then
+    for cid in $CONN_IDS; do
+      confluent connect cluster delete "$cid" --cluster "$CLUSTER_ID" --environment "$ENV_ID" --force
+      echo "   -> Deleted connector $cid"
+    done
   else
     echo "   -> No connector found."
   fi
@@ -145,7 +147,33 @@ if [ -n "$CLUSTER_ID" ]; then
   done
 fi
 
-# 6. Optional Cluster / Environment deletion
+# 6. Schema Registry Subjects
+log "6. Cleaning up Schema Registry subjects..."
+SR_SUBJECTS=(
+  "mta_vehicle_positions-value"
+  "mta_trip_updates-value"
+  "mta_bus_positions-value"
+  "mta_arrival_estimates-value"
+  "mta_headway_alerts-value"
+  "mta_headway_forecast-value"
+  "mta_dispatcher_decisions-value"
+  "mta_service_alerts-value"
+  "mta.vehicle_positions-value"
+  "mta.trip_updates-value"
+  "mta.bus_positions-value"
+  "mta.arrival_estimates-value"
+  "mta.headway_alerts-value"
+  "mta.headway_forecast-value"
+  "mta.dispatcher_decisions-value"
+  "mta.service_alerts-value"
+)
+for subj in "${SR_SUBJECTS[@]}"; do
+  confluent schema-registry schema delete --subject "$subj" --version all --environment "$ENV_ID" --force >/dev/null 2>&1 || true
+  confluent schema-registry schema delete --subject "$subj" --version all --environment "$ENV_ID" --permanent --force >/dev/null 2>&1 || true
+done
+echo "   -> Deleted Transit Pulse Schema Registry subjects."
+
+# 7. Optional Cluster / Environment deletion
 if [ "$DELETE_ALL" = true ]; then
   if [ "$ENV_NAME" != "default" ] && [ "$ENV_ID" != "default" ]; then
     log "6. Deleting Environment $ENV_NAME ($ENV_ID)..."
