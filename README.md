@@ -21,11 +21,13 @@ The dashboard is a high-performance live map: real subway route lines (from stat
 ## Screenshots & Live Views
 
 ### Confluent Cloud Stream Lineage
-![Confluent Cloud Stream Lineage](docs/images/stream-lineage.png)
+<img width="1664" height="655" alt="image" src="https://github.com/user-attachments/assets/377633b3-6b3a-4d64-9206-f1466dc29552" />
+
 *Real-time Stream Lineage in Confluent Cloud: Managed HTTP Source Connector (`mta-service-alerts-http-source`) & live GTFS-RT Kafka topics flowing through Apache Flink continuous queries into `mta_dispatcher_decisions`.*
 
 ### Transit Pulse NYC App Dashboard
-![Transit Pulse NYC App Dashboard](docs/images/dashboard.png)
+<img width="1679" height="913" alt="image" src="https://github.com/user-attachments/assets/b343e655-155a-4fdd-84ed-10e86fdf27ef" />
+
 *Transit Pulse NYC Live Operations Dashboard: Real-time subway trains, ~3,500+ active buses, headway bunching/gap pulse alerts, live arrival countdowns, and interactive Google Gemini Pro operational copilots.*
 
 ---
