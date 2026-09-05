@@ -1,87 +1,86 @@
+# 🏆 #1 Prize Winner: Confluent AI Day NYC 2026
+
+> **Winner of the #1 Overall Prize for Best Use of the Confluent Platform** at the [Confluent AI Day NYC Hackathon](https://events.confluent.io/confluentaiday2026nyc) (February 2026).
+>
+> Built with **Confluent Cloud**, **Apache Flink SQL**, **Confluent Schema Registry**, **Managed HTTP Source Connectors**, **Real-Time Context Engine (RTCE)**, and **In-Stream & Interactive AI (Google Gemini Pro & Bedrock)**.
+
+---
+
 # Transit Pulse NYC
 
-*MTA Streaming Intelligence — real-time NYC transit intelligence on Confluent.*
+*MTA Streaming Intelligence — Real-Time NYC Transit Intelligence Powered by Confluent & AI*
 
-Real-time NYC subway intelligence on the **Confluent Data Streaming Platform**.
+Real-time NYC subway and bus streaming intelligence built on the **Confluent Data Streaming Platform**.
 
-Live MTA GTFS-Realtime feeds flow into Kafka; **Flink SQL** computes live arrival
-estimates and detects train **bunching** and **service gaps**; and a **Flink
-Streaming Agent** (LLM running *inside* Flink via `AI_RUN_AGENT`) turns each alert
-into a plain-English **dispatcher action** and a **rider-facing message**.
+Live MTA GTFS-Realtime feeds flow into Kafka; **Apache Flink SQL** computes live arrival estimates and detects train **bunching** and **service gaps**; and a **Flink Streaming Agent** (LLM running directly *inside* Flink via `AI_RUN_AGENT`) turns each alert into a plain-English **dispatcher action** and a **rider-facing message**.
 
-The dashboard is a high-precision live map: real subway route lines (from static
-GTFS geometry) with subway trains and **~2,700 city buses** — buses carry real GPS
-lat/lon + heading — moving on top, plus mode/route filters and on-map alert
-markers. Below the map, three **interactive Claude agents** (rider advisor,
-operator prediction, and a new-bus-route designer) answer questions grounded in
-the live fleet state.
+The dashboard is a high-performance live map: real subway route lines (from static GTFS geometry) with live subway trains and **~3,500+ city buses** — buses carry real GPS lat/lon + heading — moving on top, plus mode/route filters and on-map alert markers. Alongside the map, three **interactive Gemini Pro agents** (Rider Advisor, Fleet Risk Predictor, and Bus Route Designer) answer questions grounded in the live system state.
 
-Built for **Confluent AI Day NYC**, modeled on the architecture of
-[`confluentinc/demo-confluent-intelligence-f1`](https://github.com/confluentinc/demo-confluent-intelligence-f1) —
-we keep its shape (topics-as-Flink-tables, `ML_DETECT_ANOMALIES`, `CREATE AGENT` +
-`AI_RUN_AGENT`, FastAPI/websocket dashboard) and swap F1 tire telemetry for the NYC
-subway.
+---
 
-## Why this wins
+## Core Components & Architecture
 
-| Prize criterion | How we hit it |
-|---|---|
-| **Business impact** | Bunching and gaps are the #1 driver of unreliable transit. Dispatchers make hold/gap-fill calls in real time; riders need accurate ETAs. |
-| **Connectors / ingest** | Two ingest paths: a producer streams the *real* MTA GTFS-RT feeds (protobuf, ~5-30s), **and** a Confluent fully-managed **HTTP Source Connector** pulls a real JSON service-alerts feed into `mta.service_alerts`. |
-| **Stream processing (Flink)** | Deduplication, ETA transforms, `MATCH_RECOGNIZE` for consecutive-arrival headway, and anomaly detection on the headway series. |
-| **Flink-driven AI** | The dispatcher LLM is a **Flink operator** (`AI_RUN_AGENT`), not a side service — the recommendation is produced by a `CREATE TABLE ... AS SELECT`. |
-| **Stream Governance** | Every topic is Avro + Schema Registry; schemas are created by the Flink `CREATE TABLE` DDL. |
+| Component | Technology | Description |
+|---|---|---|
+| **Live GTFS-RT Producer** | Python, Protocol Buffers, Avro | High-throughput streaming ingest of all NYC subway lines and ~3,500+ MTA buses into Kafka topics with Schema Registry Avro serialization. |
+| **Managed Connector Ingest** | Confluent HTTP Source Connector | Managed cloud source connector polling real-time MTA service alerts directly from NY Open Data (Socrata) into `mta_service_alerts` with Schema Registry JSON Schema governance. |
+| **Stream Processing Engine** | Confluent Cloud Flink SQL | Continuous stream deduplication, ETA computation, Complex Event Processing (CEP `MATCH_RECOGNIZE`) for headway tracking, and predictive bunching/gap forecasting. |
+| **In-Stream AI Agent** | Confluent Flink `AI_RUN_AGENT` | Model inference running directly inside Flink continuous queries: evaluates headway alerts and produces concrete dispatcher interventions and rider announcements into `mta_dispatcher_decisions`. |
+| **Interactive AI Copilots** | Google Gemini Pro (`google-genai`) | Three on-demand reasoning agents (Rider Advisor, Fleet Risk Predictor, Route Designer) grounded in live fleet snapshots. |
+| **Real-Time Context Engine** | Confluent RTCE / MCP | Exposes live transit streams via Model Context Protocol (MCP) to AI coding tools (Claude Code, Cursor, Windsurf, Codex). |
+| **Operations Dashboard** | FastAPI, WebSockets, Leaflet.js | Sub-second full-fleet visualization of subway trains, buses, stations, pulse alerts, and interactive AI panels. |
 
-## Architecture
+---
+
+## Architecture Flow
 
 ```
 MTA GTFS-RT ──producers/mta_producer.py──► Kafka (Avro + Schema Registry)
-  subway + bus                              mta.vehicle_positions   (train pings)
-                                            mta.trip_updates         (arrival predictions)
-                                            mta.bus_positions        (live bus GPS + heading)
-JSON alerts ──HTTP Source Connector───────► mta.service_alerts       (managed connector, JSON+SR)
+  subway + bus                              mta_vehicle_positions   (train pings)
+                                            mta_trip_updates        (arrival predictions)
+                                            mta_bus_positions       (live bus GPS + heading)
+JSON alerts ──HTTP Source Connector───────► mta_service_alerts      (managed connector, JSON+SR)
         │
         ▼  Confluent Cloud Flink SQL (flink/*.sql, run in order)
    01  CREATE TABLE (register schemas / back topics)
    02  mta_arrival_estimates   live ETA per stop/route/direction        ──► rider board
    03  mta_headway             MATCH_RECOGNIZE consecutive arrivals → headway_seconds
    04  mta_headway_alerts      BUNCHING / GAP  (threshold + optional ML_DETECT_ANOMALIES)
-   05  llm_dispatcher_model    CREATE MODEL  (Bedrock/Claude connection)
-   06  dispatcher_agent + mta_dispatcher_decisions
-                               CREATE AGENT + AI_RUN_AGENT  ← the LLM runs IN Flink
+   05  CREATE MODEL            Google AI / Gemini Pro or AWS Bedrock connection
+   06  dispatcher_agent        CREATE AGENT + AI_RUN_AGENT  ← the LLM runs IN Flink!
    07  mta_bus_positions       live bus GPS source table
-   08  mta_headway_forecast    PREDICT next headway → PREDICTED_BUNCHING / GAP
+   08  mta_headway_forecast    CEP MATCH_RECOGNIZE → PREDICTED_BUNCHING / GAP
         │
         ▼  dashboard/ (FastAPI + websocket + Leaflet)
    live map (route lines + train/bus icons + alert markers, mode/route filters),
    next-arrivals board, bunching/gap alert feed, AI dispatcher panel,
-   + three interactive Claude agents (advisor / operator / route designer)
+   + three interactive Gemini Pro agents (advisor / operator / route designer)
 ```
 
 ## Topics
 
 | Topic | Produced by | Description |
 |-------|-------------|-------------|
-| `mta.vehicle_positions` | producer | current train position + status (high-volume stream) |
-| `mta.trip_updates` | producer | predicted arrival per stop |
-| `mta.bus_positions` | producer | live bus GPS (real lat/lon + heading), ~2.7k buses |
-| `mta.arrival_estimates` | Flink | ETA seconds per stop/route/direction |
-| `mta.headway` | Flink | headway between consecutive trains at a stop |
-| `mta.headway_alerts` | Flink | BUNCHING / GAP alerts |
-| `mta.dispatcher_decisions` | Flink Streaming Agent | LLM dispatcher action + rider message |
-| `mta.service_alerts` | HTTP Source Connector | real JSON service-alerts feed (managed connector, JSON Schema in SR) |
+| `mta_vehicle_positions` | Python Producer | Current train position + status (high-volume stream) |
+| `mta_trip_updates` | Python Producer | Predicted arrival per stop (GTFS-RT updates) |
+| `mta_bus_positions` | Python Producer | Live bus GPS (real lat/lon + heading), ~3,500 buses |
+| `mta_arrival_estimates` | Flink SQL | ETA seconds per stop/route/direction |
+| `mta_headway` | Flink SQL | Headway between consecutive trains at a stop |
+| `mta_headway_alerts` | Flink SQL | Real-time BUNCHING / GAP alerts |
+| `mta_headway_forecast` | Flink SQL | Predictive headway trends (CEP `MATCH_RECOGNIZE`) |
+| `mta_dispatcher_decisions` | Flink Streaming Agent | In-stream LLM dispatcher action + rider message |
+| `mta_service_alerts` | HTTP Source Connector | Real JSON service-alerts feed (managed connector, JSON Schema in SR) |
 
 ## Prerequisites
 
-- Python 3.11+ and, for one-command provisioning, the `confluent` CLI (v4+) + `jq`
+- Python 3.10+ and, for one-command provisioning, the `confluent` CLI (v4+) + `jq`
   (`brew install confluentinc/tap/cli jq`).
 - Confluent Cloud auth: just `confluent login` (browser/SSO) — the provisioner
-  reuses your session and creates the cluster, Schema Registry, Flink pool, and
-  connection for you. A Cloud API key works too for a non-interactive run.
-- An in-Flink LLM: **AWS Bedrock** (Claude, default) *or* **Google AI / Gemini**
-  (an [AI Studio](https://aistudio.google.com/apikey) key), set via `LLM_PROVIDER`.
-  Plus an **Anthropic API key** for the interactive agents. See
-  `flink/05_create_model.sql` and `deploy/README.md`.
+  reuses your session and sets up the cluster, Schema Registry, Flink pool, and
+  connections for you.
+- An LLM API key:
+  - **Google AI / Gemini Pro** (recommended): an [AI Studio](https://aistudio.google.com/apikey) API key (`GEMINI_API_KEY` / `GOOGLEAI_API_KEY`).
+  - **AWS Bedrock** (optional): IAM credentials for Claude in `us-east-1`.
 
 ## Provision (one command)
 
@@ -163,33 +162,27 @@ mta-streaming-intelligence/
     └── SUBMISSION.md          # answers for the AI Day submission form
 ```
 
-## The map
+## Real-Time Fleet Map & Geometry
 
-Modeled on modern live transit view: static GTFS `shapes.txt` gives the real
-route-line geometry (drawn as colored polylines, served from `/api/shapes`), and
-live vehicles ride on top — subway trains as MTA bullets (snapped to station
-coords) and buses as heading-rotated icons at their true GPS position. Controls
-let you toggle **Subway / Bus** and filter to a **specific line/route**; bunching
-and gap **alerts** render as pulsing markers at the involved train's location.
+Static GTFS `shapes.txt` supplies real NYC transit route geometry (drawn as colored polylines, served dynamically from `/api/shapes`). Live vehicles render dynamically on top:
+- **Subway Trains**: render as official MTA route bullets snapped to station coordinates with active trip IDs.
+- **City Buses**: ~3,500+ buses render as heading-oriented vehicle markers using real-time GPS coordinates.
+- **Interactive Controls**: Toggle between **Subway** and **Bus** modes, filter to individual lines/routes, and view pulsing markers for active bunching and gap alerts.
 
-## AI agents
+## Dual-Tier AI Architecture
 
-Two tiers of Claude, matching where the work belongs:
+The system splits AI responsibilities between continuous in-stream evaluation and interactive fleet copilots:
 
-- **In Flink (streaming):** the dispatcher agent (`05`/`06`) runs the LLM *inside*
-  Flink via `AI_RUN_AGENT`, turning each bunching/gap alert into a dispatcher
-  action + rider message as rows land. Job `08` adds a **predictive** headway
-  forecast (flags `PREDICTED_BUNCHING` / `PREDICTED_GAP` before it happens).
+1. **In-Flink Streaming AI Agent (`05_create_model.sql` / `06_dispatcher_agent.sql`)**:
+   - The dispatcher agent runs *inside* Apache Flink via `AI_RUN_AGENT`.
+   - As headway alerts are detected, the model evaluates train spacing and outputs structured operational decisions (`HOLD TRAIN`, `GAP FILL`, `MONITOR`) and passenger announcements into `mta_dispatcher_decisions`.
+   - Continuous CEP pattern matching (`08_headway_forecast.sql`) extrapolates arrival intervals to forecast bunching/gaps *before* they occur.
 
-- **Interactive (dashboard):** three on-demand agents in `dashboard/agents.py`,
-  each grounded in the live snapshot (fleet, alerts, dispatcher decisions):
-  - **Rider advisor** — "what should I watch for going from X to Y right now?"
-  - **Operator prediction** — current risk, what degrades next, actions to take.
-  - **Route designer** — proposes a new bus route (waypoints + rationale) and
-    draws it on the map as a dashed cyan line.
-
-  These call Claude directly (`ANTHROPIC_API_KEY`) via `POST /api/advisor`,
-  `/api/operator`, `/api/route-designer`.
+2. **Interactive Fleet Copilots (`dashboard/agents.py`)**:
+   - Three on-demand agents powered by **Google Gemini Pro** (`gemini-pro-latest` / `gemini-3.1-pro-preview` via `google-genai`), grounded in the real-time fleet snapshot:
+     - **Rider Trip Advisor** (`POST /api/advisor`): Real-time corridor advice and crowd avoidance.
+     - **Fleet Risk Predictor** (`POST /api/operator`): Fleet-wide operational risk diagnosis and bottleneck identification.
+     - **Bus Route Designer** (`POST /api/route-designer`): Generates new or optimized bus routes with waypoints, stops, rationale, and GeoJSON lines to render directly on the live map.
 
 ## Data sources
 
