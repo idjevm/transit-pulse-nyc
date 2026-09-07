@@ -60,7 +60,7 @@ if [ -z "$CLUSTER_ID" ]; then
 fi
 
 # Resolve Flink compute pool
-POOL_ID="$(confluent flink compute-pool list --environment "$ENV_ID" --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null | jq -r --arg n "$POOL_NAME" '.[] | select(.name==$n or .id==$n) | .id' | head -1)"
+POOL_ID="$(confluent flink compute-pool list --environment "$ENV_ID" --region "$REGION" -o json 2>/dev/null | jq -r --arg n "$POOL_NAME" '.[] | select(.name==$n or .id==$n) | .id' | head -1)"
 
 log "Tear Down Plan"
 echo "  Environment:   $ENV_NAME ($ENV_ID)"
