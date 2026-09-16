@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Tear down resources created for Transit Pulse NYC.
-# By default, cleans up all application resources (connector, Flink statements,
-# Flink models, Flink connections, Flink compute pool, and Kafka topics) while
-# preserving the user's environment and Kafka cluster.
+# By default, cleans up all application resources (HTTP connector, Flink
+# statements, a best-effort drop of the Flink model/agent, Flink connections,
+# Flink compute pool, Kafka topics, Schema Registry subjects, and the app API
+# keys) while preserving the user's environment and Kafka cluster.
 #
 # Usage:
 #   ./deploy/teardown.sh          # interactive confirmation, cleans app resources
@@ -66,7 +67,7 @@ log "Tear Down Plan"
 echo "  Environment:   $ENV_NAME ($ENV_ID)"
 echo "  Cluster:       ${CLUSTER_ID:-none}"
 echo "  Compute Pool:  ${POOL_ID:-none} ($POOL_NAME)"
-echo "  Scope:         HTTP Connector, Flink Statements, Flink Connections, Compute Pool, Kafka Topics"
+echo "  Scope:         HTTP Connector, Flink Statements, Flink Model/Agent, Flink Connections, Compute Pool, Kafka Topics, Schema Registry Subjects, API Keys"
 
 if [ "$CONFIRM" = true ]; then
   read -r -p "Proceed with tearing down Transit Pulse NYC cloud resources? [y/N] " ok
@@ -111,16 +112,34 @@ for conn in "llm-dispatcher-connection" "llm-dispatcher-connection-gemini"; do
   fi
 done
 
-# 4. Flink Compute Pool (stops CFU billing)
+# 4. Flink Model + Agent (best-effort DROP, before the pool it runs on is gone)
+if [ -n "$POOL_ID" ] && [ -n "$CLUSTER_ID" ]; then
+  log "4. Dropping Flink model/agent (best-effort)..."
+  # Drop the agent first (it depends on the model), then the model. IF EXISTS +
+  # || true keep this non-fatal if the SQL grammar or objects aren't present.
+  for drop in "DROP AGENT IF EXISTS \`dispatcher_agent\`" "DROP MODEL IF EXISTS \`llm_dispatcher_model\`"; do
+    confluent flink statement create "mta-teardown-drop-$RANDOM" \
+      --sql "$drop" \
+      --compute-pool "$POOL_ID" \
+      --database "$CLUSTER_ID" \
+      --environment "$ENV_ID" \
+      --cloud "$CLOUD" \
+      --region "$REGION" \
+      -o json >/dev/null 2>&1 || true
+  done
+  echo "   -> Requested DROP MODEL/AGENT IF EXISTS (llm_dispatcher_model / dispatcher_agent)"
+fi
+
+# 5. Flink Compute Pool (stops CFU billing)
 if [ -n "$POOL_ID" ]; then
-  log "4. Deleting Flink Compute Pool (stopping CFU billing)..."
+  log "5. Deleting Flink Compute Pool (stopping CFU billing)..."
   confluent flink compute-pool delete "$POOL_ID" --environment "$ENV_ID" --force >/dev/null 2>&1 || true
   echo "   -> Deleted compute pool: $POOL_ID ($POOL_NAME)"
 fi
 
-# 5. Kafka Topics
+# 6. Kafka Topics
 if [ -n "$CLUSTER_ID" ]; then
-  log "5. Deleting Transit Pulse Kafka Topics..."
+  log "6. Deleting Transit Pulse Kafka Topics..."
   MTA_TOPICS=(
     "mta_vehicle_positions"
     "mta_trip_updates"
@@ -147,8 +166,8 @@ if [ -n "$CLUSTER_ID" ]; then
   done
 fi
 
-# 6. Schema Registry Subjects
-log "6. Cleaning up Schema Registry subjects..."
+# 7. Schema Registry Subjects
+log "7. Cleaning up Schema Registry subjects..."
 SR_SUBJECTS=(
   "mta_vehicle_positions-value"
   "mta_trip_updates-value"
@@ -173,10 +192,19 @@ for subj in "${SR_SUBJECTS[@]}"; do
 done
 echo "   -> Deleted Transit Pulse Schema Registry subjects."
 
-# 7. Optional Cluster / Environment deletion
+# 8. Application API Keys (matched by description, so re-runs don't pile them up)
+log "8. Deleting application API keys (mta-producer / mta-sr)..."
+for desc in "mta-producer" "mta-sr"; do
+  for k in $(confluent api-key list -o json 2>/dev/null | jq -r --arg d "$desc" '.[] | select(.description==$d) | (.key // .api_key)' || true); do
+    confluent api-key delete "$k" --force >/dev/null 2>&1 || true
+    echo "   -> Deleted API key: $k ($desc)"
+  done
+done
+
+# 9. Optional Cluster / Environment deletion
 if [ "$DELETE_ALL" = true ]; then
   if [ "$ENV_NAME" != "default" ] && [ "$ENV_ID" != "default" ]; then
-    log "6. Deleting Environment $ENV_NAME ($ENV_ID)..."
+    log "9. Deleting Environment $ENV_NAME ($ENV_ID)..."
     confluent environment delete "$ENV_ID" --force
     echo "   -> Deleted environment: $ENV_ID"
   else
