@@ -28,9 +28,9 @@ as pulsing markers on the map.
 ## Confluent platform usage
 - **Connectors / ingest:** two paths. (1) A producer streams the live MTA GTFS-RT
   feeds (protobuf) into Kafka — subway positions + trip updates
-  (`mta.vehicle_positions`, `mta.trip_updates`) and ~2,700 live buses with real GPS
-  (`mta.bus_positions`). (2) A Confluent **fully-managed HTTP Source Connector**
-  polls a real JSON service-alerts feed into `mta.service_alerts` (provisioned by
+  (`mta_vehicle_positions`, `mta_trip_updates`) and ~2,700 live buses with real GPS
+  (`mta_bus_positions`). (2) A Confluent **fully-managed HTTP Source Connector**
+  polls a real JSON service-alerts feed into `mta_service_alerts` (provisioned by
   `deploy/provision.sh` from `deploy/connectors/http_source_service_alerts.json`),
   so the managed-connector path is demonstrated, not just claimed.
 - **Stream Governance / Schema Registry:** every topic is Avro; schemas are created
@@ -44,19 +44,21 @@ as pulsing markers on the map.
     that learns each station's normal headway.
 - **Flink-driven AI:** `CREATE MODEL` + `CREATE AGENT` + `AI_RUN_AGENT` run the LLM
   as a Flink operator inside a `CREATE TABLE ... AS SELECT`, writing decisions to
-  `mta.dispatcher_decisions`. The AI is part of the stream, not a side service.
+  `mta_dispatcher_decisions`. The AI is part of the stream, not a side service.
 - **Predictive Flink:** a headway-forecast job (`mta_headway_forecast`) projects the
   next headway per station and raises `PREDICTED_BUNCHING` / `PREDICTED_GAP` *before*
   it happens — deterministic by default, with an optional `ML_FORECAST` variant.
 
-## Interactive AI agents
-Beyond the streaming dispatcher, the dashboard exposes three on-demand Claude agents,
+## Interactive AI copilots
+Beyond the streaming dispatcher, the dashboard exposes three on-demand copilots,
 each grounded in the live snapshot (fleet, alerts, dispatcher decisions):
 - **Rider advisor** — "what should I watch for going from X to Y right now?"
 - **Operator prediction** — current risk, what will degrade next, actions to take.
 - **Route designer** — proposes a new bus route (waypoints + rationale) and draws it
-  on the map. The in-Flink LLM uses AWS Bedrock; these interactive agents call Claude
-  directly, so both the streaming and interactive AI paths are demonstrated.
+  on the map. The in-Flink dispatcher runs on AWS Bedrock or Google Gemini; these
+  interactive copilots use Google Gemini when a Google API key is set and fall back
+  to Anthropic Claude otherwise, so both the streaming and interactive AI paths are
+  demonstrated.
 
 ## Business impact
 Bunching and gaps are the single largest driver of unreliable subway service.

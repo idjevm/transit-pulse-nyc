@@ -3,8 +3,8 @@
 Polls the NYC subway GTFS-RT feeds on an interval, decodes the protobuf, and
 produces Avro records to two topics:
 
-  - mta.vehicle_positions : one record per train (current position + status)
-  - mta.trip_updates      : one record per predicted stop arrival
+  - mta_vehicle_positions : one record per train (current position + status)
+  - mta_trip_updates      : one record per predicted stop arrival
 
 Both are Avro via Schema Registry, produced directly to Confluent Cloud. The Avro
 value schemas are the ones registered by flink/01_create_tables.sql, so we run the
