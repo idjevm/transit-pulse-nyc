@@ -42,7 +42,7 @@
         <span class="stat-val" id="stat-routes">--</span>
         <span class="stat-label">Routes live</span>
       </div>
-      <span id="conn" class="conn offline">● CONNECTING</span>
+      <span id="conn" class="conn offline" role="status" aria-live="polite">● CONNECTING</span>
     </div>
   </header>
 
@@ -123,14 +123,14 @@
         <span class="tag copilot-tag">Gemini Pro · live-grounded</span>
       </h2>
 
-      <div class="agent-tabs">
-        <button class="agent-tab active" data-agent="advisor">Rider Advisor</button>
-        <button class="agent-tab" data-agent="operator">Operator Prediction</button>
-        <button class="agent-tab" data-agent="route">Route Designer</button>
+      <div class="agent-tabs" role="tablist">
+        <button class="agent-tab active" data-agent="advisor" id="tab-advisor" role="tab" aria-selected="true" aria-controls="pane-advisor">Rider Advisor</button>
+        <button class="agent-tab" data-agent="operator" id="tab-operator" role="tab" aria-selected="false" aria-controls="pane-operator">Operator Prediction</button>
+        <button class="agent-tab" data-agent="route" id="tab-route" role="tab" aria-selected="false" aria-controls="pane-route">Route Designer</button>
       </div>
 
       <!-- Rider advisor -->
-      <div class="agent-pane active" id="pane-advisor">
+      <div class="agent-pane active" id="pane-advisor" role="tabpanel" aria-labelledby="tab-advisor">
         <p class="agent-hint">Ask what to watch for on a trip, grounded in the live fleet and alerts.</p>
         <div class="agent-form">
           <input type="text" id="adv-origin" class="agent-input" placeholder="From (e.g. Union Sq)" />
@@ -143,7 +143,7 @@
       </div>
 
       <!-- Operator prediction -->
-      <div class="agent-pane" id="pane-operator">
+      <div class="agent-pane" id="pane-operator" role="tabpanel" aria-labelledby="tab-operator">
         <p class="agent-hint">Ask the ops analyst how to improve service and what will degrade next.</p>
         <textarea id="op-q" class="agent-textarea" rows="2"
           placeholder="Default: assess health, predict next problems, recommend actions."></textarea>
@@ -152,7 +152,7 @@
       </div>
 
       <!-- Route designer -->
-      <div class="agent-pane" id="pane-route">
+      <div class="agent-pane" id="pane-route" role="tabpanel" aria-labelledby="tab-route">
         <p class="agent-hint">Propose a new bus route for a corridor; it draws on the map.</p>
         <div class="agent-form">
           <input type="text" id="rt-origin" class="agent-input" placeholder="From (e.g. Red Hook)" />
