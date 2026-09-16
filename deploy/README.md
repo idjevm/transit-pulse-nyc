@@ -54,7 +54,7 @@ the submission form (that screenshot is required and must be real, not AI made).
 
 Alongside the GTFS-RT producer, `provision.sh` can stand up a Confluent
 **fully-managed HTTP Source Connector** that polls a JSON endpoint into
-`mta.service_alerts` (JSON Schema registered in Schema Registry) — this is the
+`mta_service_alerts` (JSON Schema registered in Schema Registry) — this is the
 "Use of Confluent Connector(s)" path, and it shows up as a source in Stream
 Lineage.
 
@@ -100,8 +100,16 @@ in the Console instead? `flink/05_create_model.sql` has both the Bedrock and Gem
 ## Teardown
 
 ```bash
-./deploy/teardown.sh     # deletes the environment and everything under it
+./deploy/teardown.sh          # default: tears down the app's Confluent resources
+./deploy/teardown.sh --all    # also deletes the environment (never "default")
 ```
+
+By default, teardown **preserves** the Confluent environment and the Kafka
+cluster. It deletes the HTTP connector, Flink statements, Flink connections, the
+compute pool, Kafka topics, Schema Registry subjects, and the app API keys, and
+best-effort drops the Flink model/agent. `--all` additionally deletes the
+environment (only when it isn't named `default`); the Kafka cluster is never
+deleted automatically.
 
 ## Notes
 
