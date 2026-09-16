@@ -20,12 +20,17 @@ def main() -> None:
     total_vp = total_tu = 0
     for key, url in feeds.FEEDS.items():
         try:
-            content = requests.get(url, timeout=30).content
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
         except requests.RequestException as exc:
             print(f"[{key:8s}] fetch failed: {exc}")
             continue
         feed = gtfs_realtime_pb2.FeedMessage()
-        feed.ParseFromString(content)
+        try:
+            feed.ParseFromString(resp.content)
+        except Exception as exc:  # noqa: BLE001 - non-protobuf/HTML response must not abort the loop
+            print(f"[{key:8s}] parse failed: {exc}")
+            continue
         vp = sum(1 for e in feed.entity if e.HasField("vehicle"))
         tu = sum(1 for e in feed.entity if e.HasField("trip_update"))
         total_vp += vp

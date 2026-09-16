@@ -1,4 +1,4 @@
--- 01: Source tables — mta.vehicle_positions and mta.trip_updates
+-- 01: Source tables — mta_vehicle_positions and mta_trip_updates
 --
 -- These CREATE TABLE statements back Kafka topics and register the Avro value
 -- schemas in Schema Registry (value.format = 'avro-registry'). The Python
