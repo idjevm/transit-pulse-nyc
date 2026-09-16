@@ -1,13 +1,14 @@
 """Kafka -> DashboardState consumer.
 
-Tails the four dashboard-facing topics and routes each Avro-decoded record into
+Tails the five dashboard-facing topics and routes each Avro-decoded record into
 the shared DashboardState. Same confluent-kafka + Schema Registry stack the
 producer uses, run in reverse (mirrors the F1 pitwall consumer).
 
-  - mta.vehicle_positions : tail from latest (high-volume live view)
-  - mta.arrival_estimates : tail from latest (continuously re-emitted)
-  - mta.headway_alerts     : from earliest (low-volume; show recent history)
-  - mta.dispatcher_decisions : from earliest (low-volume AI output)
+  - mta_vehicle_positions : tail from latest (high-volume live view)
+  - mta_bus_positions      : tail from latest (high-volume live GPS)
+  - mta_arrival_estimates : tail from latest (continuously re-emitted)
+  - mta_headway_alerts     : from earliest (low-volume; show recent history)
+  - mta_dispatcher_decisions : from earliest (low-volume AI output)
 
 Topics that don't exist yet (the Flink jobs may not be running) are handled
 gracefully: UNKNOWN_TOPIC is suppressed until Flink creates them.
