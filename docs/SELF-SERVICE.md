@@ -36,7 +36,7 @@ Once services are launched, there are two primary destinations:
 
 ### A. The Live Map Dashboard (Local)
 👉 **[http://localhost:8000](http://localhost:8000)** (or `http://127.0.0.1:8000`)
-- **Live Fleet View**: Real MTA subway trains moving on official route lines + over 3,000 live city buses with heading direction arrows.
+- **Live Fleet View**: Real MTA subway trains moving on official route lines + ~2,700 live city buses with heading direction arrows.
 - **Arrivals Board**: Real-time countdown clocks per station.
 - **Alert Feed**: Real-time bunching (`<150s`) and headway gap (`>900s`) pulsing alert markers.
 - **In-Stream AI Copilot**: Streaming recommendations generated directly by Flink and Bedrock (`HOLD TRAIN`, `GAP FILL`, `SKIP-STOP`, `MONITOR`).
@@ -45,9 +45,9 @@ Once services are launched, there are two primary destinations:
 
 ### B. Confluent Cloud Console (Cloud)
 👉 **[https://confluent.cloud](https://confluent.cloud)**
-- **Stream Lineage**: Open your environment (`default` / `env-3kwon2`) $\to$ **Stream Lineage**. You will see the end-to-end graph connecting your producer topics, continuous Flink queries, and the in-stream LLM agent.
-- **Flink SQL Workspace**: Open **Flink** $\to$ **SQL Workspaces**. Select catalog `default` and database `lkc-k8kpr3m` to inspect or run live queries.
-- **Topics**: Open cluster `cluster_0` $\to$ **Topics** to view messages flowing into `mta_vehicle_positions`, `mta_headway_alerts`, and `mta_dispatcher_decisions`.
+- **Stream Lineage**: Open your environment (`default` / `<your-env-id>` — the `ENV_ID` that `provision.sh` prints) $\to$ **Stream Lineage**. You will see the end-to-end graph connecting your producer topics, continuous Flink queries, and the in-stream LLM agent.
+- **Flink SQL Workspace**: Open **Flink** $\to$ **SQL Workspaces**. Select catalog `default` and database `<your-cluster-id>` (the `CLUSTER_ID` that `provision.sh` prints) to inspect or run live queries.
+- **Topics**: Open your cluster (`<your-cluster-id>`) $\to$ **Topics** to view messages flowing into `mta_vehicle_positions`, `mta_headway_alerts`, and `mta_dispatcher_decisions`.
 - **Real-Time Context Engine**: Topics $\to$ `mta_vehicle_positions` / `mta_headway_alerts` $\to$ view RTCE MCP enablement.
 
 ---
@@ -86,6 +86,9 @@ python scripts/smoke_test.py
 ./deploy/provision.sh
 ```
 
+`provision.sh` prints the IDs you'll need in the Console steps below — `ENV_ID`,
+`CLUSTER_ID`, and `POOL_ID`. Use those in place of the `<your-...>` placeholders.
+
 ---
 
 ## 4. Run the Producer & Local Dashboard
@@ -106,7 +109,7 @@ uvicorn dashboard.app:app --host 127.0.0.1 --port 8000
 
 ## 5. Inspecting Flink SQL in Confluent Cloud
 
-In the Confluent Cloud Console, open the **Flink SQL Workspace** (catalog `default`, database `lkc-k8kpr3m`), and run these verification queries:
+In the Confluent Cloud Console, open the **Flink SQL Workspace** (catalog `default`, database `<your-cluster-id>` — the `CLUSTER_ID` printed by `provision.sh`), and run these verification queries:
 
 ### A. Inspect Live Headway Alerts
 ```sql
@@ -173,7 +176,13 @@ Once connected, you can ask your AI agent in plain English:
 
 When you are finished with the demo or workshop:
 ```bash
-./deploy/teardown.sh
+./deploy/teardown.sh          # default: preserves the environment and Kafka cluster
+./deploy/teardown.sh --all    # also deletes the environment (never "default")
 ```
-This safely deletes the Flink statements, compute pool, and cluster resources.
+The default run tears down the HTTP connector, Flink statements, Flink
+connections, the compute pool, Kafka topics, Schema Registry subjects, and the
+app API keys, and best-effort drops the Flink model/agent. It **preserves** the
+environment and the Kafka cluster. `--all` additionally deletes the environment
+(only when it isn't named `default`); the Kafka cluster is never deleted
+automatically.
 
