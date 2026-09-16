@@ -96,6 +96,11 @@ WHERE (predicted_headway < 150 AND headway_seconds >= 150)
 -- rhythm instead of a straight-line trend. Signature/args can vary by Flink
 -- version — check your workspace's function docs and adjust the config keys.
 --
+-- Like the 04 variant, the OVER window's ORDER BY arrival_time needs arrival_time
+-- to be a time attribute: the value passes through MATCH_RECOGNIZE, but that
+-- property is not carried automatically — it comes from the WATERMARK declared on
+-- mta_headway (job 03), which is now in place.
+--
 -- INSERT INTO `mta_headway_forecast`
 -- WITH scored AS (
 --   SELECT
