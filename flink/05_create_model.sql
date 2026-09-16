@@ -44,7 +44,7 @@ WITH (
 -- CREATE CONNECTION `llm-dispatcher-connection`
 -- WITH (
 --   'type'     = 'GOOGLEAI',
---   'endpoint' = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent',
+--   'endpoint' = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
 --   'api-key'  = '<GOOGLEAI_API_KEY>'
 -- );
 
