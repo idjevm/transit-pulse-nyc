@@ -61,8 +61,11 @@ WHERE headway_seconds < 150 OR headway_seconds > 900;
 -- flags statistical outliers, so a naturally short-headway trunk stop and a
 -- long-headway outer-borough stop are each judged against their own baseline.
 -- This is the same GA function the F1 demo uses (docs/demo-reference/
--- enrichment_anomaly.sql). It needs a time attribute to ORDER BY; arrival_time
--- carries the rowtime out of MATCH_RECOGNIZE, so keep the ORDER BY on it.
+-- enrichment_anomaly.sql). It needs a time attribute to ORDER BY; the
+-- arrival_time value passes through MATCH_RECOGNIZE, but its time-attribute
+-- property is not carried automatically — it comes from the WATERMARK declared
+-- on mta_headway (job 03), which is now in place, so ORDER BY arrival_time is a
+-- valid rowtime ordering.
 --
 -- INSERT INTO `mta_headway_alerts`
 -- WITH scored AS (
