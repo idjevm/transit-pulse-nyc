@@ -1,8 +1,10 @@
 """Thread-safe in-memory snapshot of the subway for the dashboard.
 
 The Kafka consumer thread writes records in; the websocket reads snapshots out.
-All access is guarded by a single lock. Stale trains/arrivals are pruned on
-snapshot so a train that stops reporting drops off the map instead of lingering.
+All access is guarded by a single lock. On each snapshot, entries whose last
+update is older than their TTL are both excluded from the output AND deleted
+from the backing dicts, so a train that stops reporting drops off the map and
+its memory is reclaimed instead of growing unbounded over a service day.
 """
 
 from __future__ import annotations
@@ -156,6 +158,13 @@ class DashboardState:
                     "trip_id": a["trip_id"], "eta_seconds": eta,
                 })
             arrivals.sort(key=lambda x: x["eta_seconds"])
+            # Evict expired entries from the backing dicts so they don't grow
+            # unbounded over a service day; TTL is by last-seen, independent of
+            # the eta-window filtering applied to the output above.
+            for k in [k for k, v in self._trains.items() if now - v["_seen"] > TRAIN_TTL_SEC]:
+                del self._trains[k]
+            for k in [k for k, a in self._arrivals.items() if now - a["_seen"] > ARRIVAL_TTL_SEC]:
+                del self._arrivals[k]
             alerts = list(self._alerts)[::-1]
             recs = list(self._recs)[::-1]
             n_subway = sum(1 for t in trains if t["mode"] == "subway")
