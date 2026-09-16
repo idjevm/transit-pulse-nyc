@@ -98,7 +98,7 @@ function subwayIcon(routeShort) {
   const label = String(routeShort || "?").slice(0, 2);
   return L.divIcon({
     className: "veh-icon",
-    html: `<span class="bullet subway" style="background:${bg};color:${fg}">${label}</span>`,
+    html: `<span class="bullet subway" style="background:${bg};color:${fg}">${escapeHtml(label)}</span>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });
@@ -116,7 +116,7 @@ function busIcon(routeShort, bearing) {
     className: "veh-icon",
     html:
       `<span class="bullet bus" style="background:${bg};color:${fg};border-color:${bg}">` +
-      `${arrow}<span class="bus-label">${label}</span></span>`,
+      `${arrow}<span class="bus-label">${escapeHtml(label)}</span></span>`,
     iconSize: [34, 20],
     iconAnchor: [17, 10],
   });
@@ -274,8 +274,8 @@ function updateBusBearing(marker, bearing) {
 function vehicleTooltip(t) {
   const rs = t.route_short || t.route_id || "?";
   const where = t.stop_name || t.stop_id || "";
-  const dir = t.mode === "bus" ? "" : " " + directionLabel(t.direction);
-  return `<b>${rs}</b>${dir}<br/>${where}<br/><span class="tt-status">${t.status || ""}</span>`;
+  const dir = t.mode === "bus" ? "" : " " + escapeHtml(directionLabel(t.direction));
+  return `<b>${escapeHtml(rs)}</b>${dir}<br/>${escapeHtml(where)}<br/><span class="tt-status">${escapeHtml(t.status || "")}</span>`;
 }
 
 // Place a pulsing warning at the involved train's live position (curr_trip).
@@ -288,8 +288,8 @@ function renderMapAlerts(alerts, trains) {
     if (!ll || !ll[0]) continue;
     L.marker(ll, {icon: alertIcon(a.alert_type), interactive: true, zIndexOffset: 1000})
       .bindTooltip(
-        `<b>${(a.alert_type || "ALERT").toUpperCase()}</b> · ${a.route_id || ""}<br/>` +
-        `${a.stop_name || a.stop_id || ""}<br/>headway ${a.headway_seconds ?? "--"}s`,
+        `<b>${escapeHtml((a.alert_type || "ALERT").toUpperCase())}</b> · ${escapeHtml(a.route_id || "")}<br/>` +
+        `${escapeHtml(a.stop_name || a.stop_id || "")}<br/>headway ${escapeHtml(a.headway_seconds ?? "--")}s`,
         {direction: "top", className: "train-tt", offset: [0, -10]}
       )
       .addTo(alertLayer);
@@ -308,8 +308,8 @@ function renderArrivals(arrivals) {
   }
   body.innerHTML = rows.map(a =>
     `<tr><td>${routeChip(a.route_id)}</td>` +
-    `<td>${directionLabel(a.direction)}</td>` +
-    `<td class="station">${a.stop_name || a.stop_id || ""}</td>` +
+    `<td>${escapeHtml(directionLabel(a.direction))}</td>` +
+    `<td class="station">${escapeHtml(a.stop_name || a.stop_id || "")}</td>` +
     `<td class="eta-col">${formatEta(a.eta_seconds)}</td></tr>`
   ).join("");
 }
@@ -322,10 +322,10 @@ function renderAlerts(alerts) {
     const type = (a.alert_type || "").toUpperCase();
     const typeClass = type === "GAP" ? "gap" : "bunching";
     return `<li class="alert-item ${typeClass}"><div class="alert-head">` +
-      `${routeChip(a.route_id)}<span class="alert-type ${typeClass}">${type || "ALERT"}</span>` +
+      `${routeChip(a.route_id)}<span class="alert-type ${typeClass}">${escapeHtml(type || "ALERT")}</span>` +
       `<span class="alert-time">${formatClock(a.ts)}</span></div>` +
-      `<div class="alert-body"><span class="station">${a.stop_name || a.stop_id || ""}</span>` +
-      `<span class="headway">headway ${a.headway_seconds ?? "--"}s</span></div></li>`;
+      `<div class="alert-body"><span class="station">${escapeHtml(a.stop_name || a.stop_id || "")}</span>` +
+      `<span class="headway">headway ${escapeHtml(a.headway_seconds ?? "--")}s</span></div></li>`;
   }).join("");
 }
 
@@ -335,11 +335,11 @@ function renderRecommendations(recs) {
   const sorted = [...recs].sort((a, b) => (b.ts || 0) - (a.ts || 0));
   feed.innerHTML = sorted.map(r =>
     `<li class="rec-item"><div class="rec-head">` +
-    `<span class="action-badge ${actionClass(r.action)}">${r.action || "MONITOR"}</span>` +
-    `${routeChip(r.route_id)}<span class="station">${r.stop_name || r.stop_id || ""}</span>` +
+    `<span class="action-badge ${actionClass(r.action)}">${escapeHtml(r.action || "MONITOR")}</span>` +
+    `${routeChip(r.route_id)}<span class="station">${escapeHtml(r.stop_name || r.stop_id || "")}</span>` +
     `<span class="alert-time">${formatClock(r.ts)}</span></div>` +
-    `<p class="rec-note">${r.dispatcher_note || ""}</p>` +
-    (r.rider_message ? `<p class="rider-msg">&ldquo;${r.rider_message}&rdquo;</p>` : "") +
+    `<p class="rec-note">${escapeHtml(r.dispatcher_note || "")}</p>` +
+    (r.rider_message ? `<p class="rider-msg">&ldquo;${escapeHtml(r.rider_message)}&rdquo;</p>` : "") +
     `</li>`
   ).join("");
 }
@@ -355,9 +355,9 @@ function rebuildRouteFilter() {
   const current = sel.value;
   let html = `<option value="">All routes</option>`;
   if (subway.length) html += `<optgroup label="Subway">` +
-    subway.map(r => `<option value="${r}">${r}</option>`).join("") + `</optgroup>`;
+    subway.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("") + `</optgroup>`;
   if (bus.length) html += `<optgroup label="Bus">` +
-    bus.map(r => `<option value="${r}">${r}</option>`).join("") + `</optgroup>`;
+    bus.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("") + `</optgroup>`;
   sel.innerHTML = html;
   sel.value = current; // keep selection if still valid
 }
@@ -367,7 +367,7 @@ function routeChip(routeId) {
   const id = routeId != null ? String(routeId) : "?";
   const bg = routeColor(id);
   const fg = textColorFor(bg);
-  return `<span class="route-chip" style="background:${bg};color:${fg}">${id}</span>`;
+  return `<span class="route-chip" style="background:${bg};color:${fg}">${escapeHtml(id)}</span>`;
 }
 function directionLabel(dir) {
   if (dir === "N") return "Uptown";
@@ -427,7 +427,11 @@ function wireAgents() {
   document.querySelectorAll(".agent-tab").forEach(tab => {
     tab.addEventListener("click", () => {
       const name = tab.dataset.agent;
-      document.querySelectorAll(".agent-tab").forEach(t => t.classList.toggle("active", t === tab));
+      document.querySelectorAll(".agent-tab").forEach(t => {
+        const on = t === tab;
+        t.classList.toggle("active", on);
+        t.setAttribute("aria-selected", on ? "true" : "false");
+      });
       document.querySelectorAll(".agent-pane").forEach(p =>
         p.classList.toggle("active", p.id === `pane-${name}`));
     });
