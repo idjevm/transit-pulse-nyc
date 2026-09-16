@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS `mta_headway` (
   `prev_trip`       STRING,
   `curr_trip`       STRING,
   `headway_seconds` BIGINT,
-  `arrival_time`    TIMESTAMP(3)
+  `arrival_time`    TIMESTAMP(3),
+  WATERMARK FOR `arrival_time` AS `arrival_time` - INTERVAL '5' MINUTE
 ) WITH (
   'changelog.mode' = 'append',
   'connector' = 'confluent',
