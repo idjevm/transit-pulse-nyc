@@ -1,17 +1,19 @@
-"""Interactive Claude agents for the MTA dashboard.
+"""Interactive transit copilots for the MTA dashboard.
 
-Three agents, all backed by the Anthropic API (Claude) as a side service — this is
-separate from the in-Flink Bedrock model that powers the streaming dispatcher.
-Each one is grounded in the LIVE dashboard snapshot (trains, buses, arrivals,
-headway alerts, and the Flink dispatcher's own recommendations) so its answers
-reflect the real system state, not a static prompt.
+Three copilots, each grounded in the LIVE dashboard snapshot (trains, buses,
+arrivals, headway alerts, and the Flink dispatcher's own recommendations) so its
+answers reflect the real system state, not a static prompt. They use Google
+Gemini when a Google API key (GEMINI_API_KEY / GOOGLEAI_API_KEY /
+GOOGLE_API_KEY) is set, and fall back to Anthropic Claude otherwise; Gemini is
+optional, not the hard default. This is a side service, separate from the
+in-Flink model that powers the streaming dispatcher.
 
   - rider_advisor   : "what should I watch for going from X to Y right now?"
   - operator_insight: "how do we improve / what will get worse?" over the fleet
   - route_designer  : proposes a new bus route (waypoints + rationale) to draw
 
-If ANTHROPIC_API_KEY is unset or the SDK errors, every entry point returns a
-structured error the frontend can show instead of raising.
+If no LLM is configured (no Google or Anthropic key) or the SDK errors, every
+entry point returns a structured error the frontend can show instead of raising.
 """
 
 from __future__ import annotations
@@ -116,7 +118,7 @@ def _summarize_state(snap: dict) -> str:
     return "\n".join(lines)
 
 
-def _ask(system: str, user: str, max_tokens: int = 900) -> tuple[str | None, str | None]:
+def _ask(system: str, user: str, max_tokens: int = 1800) -> tuple[str | None, str | None]:
     """Single-shot LLM call. Uses Gemini Pro if configured, falls back to Anthropic."""
     g_client = _gemini_client()
     if g_client is not None:
@@ -131,7 +133,10 @@ def _ask(system: str, user: str, max_tokens: int = 900) -> tuple[str | None, str
                     max_output_tokens=max_tokens,
                 ),
             )
-            return (resp.text or "").strip(), None
+            text = (resp.text or "").strip()
+            if not text:
+                return None, "model returned no text (possibly truncated or blocked)"
+            return text, None
         except Exception as exc:
             log.exception("gemini call failed")
             return None, f"Gemini request failed: {exc}"
@@ -212,7 +217,7 @@ def operator_insight(snap: dict, question: str = "") -> dict:
         "recommend the highest-impact operational actions."
     )
     user = f"Operator asks: {ask}\n\nLIVE SYSTEM STATE:\n{ctx}"
-    text, err = _ask(OPERATOR_SYSTEM, user, max_tokens=1100)
+    text, err = _ask(OPERATOR_SYSTEM, user, max_tokens=2200)
     if err:
         return {"ok": False, "error": err}
     return {"ok": True, "answer": text}
@@ -245,7 +250,7 @@ def route_designer(snap: dict, origin: str, destination: str, constraints: str =
     if constraints:
         parts.append(f"Constraints/goals: {constraints}")
     parts.append("\nLIVE SYSTEM STATE (for demand/gap signals):\n" + ctx)
-    text, err = _ask(ROUTE_DESIGNER_SYSTEM, "\n".join(parts), max_tokens=2048)
+    text, err = _ask(ROUTE_DESIGNER_SYSTEM, "\n".join(parts), max_tokens=4096)
     if err:
         return {"ok": False, "error": err}
 
