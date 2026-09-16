@@ -58,7 +58,7 @@ CONNECTION_NAME="llm-dispatcher-connection"
 
 # In-Flink LLM provider: bedrock (default) or googleai (Google AI Studio / Gemini).
 LLM_PROVIDER="$(echo "${LLM_PROVIDER:-bedrock}" | tr '[:upper:]' '[:lower:]')"
-GEMINI_MODEL_ID="${GEMINI_MODEL_ID:-gemini-pro-latest}"
+GEMINI_MODEL_ID="${GEMINI_MODEL_ID:-gemini-2.0-flash}"
 GOOGLEAI_ENDPOINT="${GOOGLEAI_ENDPOINT:-https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent}"
 
 # ---- find-or-create helpers (idempotent by display name) --------------------
@@ -105,6 +105,11 @@ for _ in $(seq 1 30); do
 done
 
 log "Kafka API key"
+# Confluent caps API keys per resource; drop any we created before (matched by
+# description) so repeated runs don't pile up and hit the limit. Non-fatal.
+for k in $(confluent api-key list -o json 2>/dev/null | jq -r '.[] | select(.description=="mta-producer") | (.key // .api_key)' || true); do
+  confluent api-key delete "$k" --force >/dev/null 2>&1 || true
+done
 KAFKA_KEY_JSON="$(confluent api-key create --resource "$CLUSTER_ID" --description "mta-producer" -o json)"
 KAFKA_API_KEY="$(echo "$KAFKA_KEY_JSON" | jq -r '.api_key // .key')"
 KAFKA_API_SECRET="$(echo "$KAFKA_KEY_JSON" | jq -r '.api_secret // .secret')"
@@ -112,6 +117,10 @@ KAFKA_API_SECRET="$(echo "$KAFKA_KEY_JSON" | jq -r '.api_secret // .secret')"
 log "Schema Registry"
 SR_ID="$(confluent schema-registry cluster describe -o json | jq -r '.cluster // .cluster_id // .id')"
 SR_URL="$(confluent schema-registry cluster describe -o json | jq -r '.endpoint_url // .endpoint')"
+# Same key-pile-up guard as the Kafka key above (matched by description). Non-fatal.
+for k in $(confluent api-key list -o json 2>/dev/null | jq -r '.[] | select(.description=="mta-sr") | (.key // .api_key)' || true); do
+  confluent api-key delete "$k" --force >/dev/null 2>&1 || true
+done
 SR_KEY_JSON="$(confluent api-key create --resource "$SR_ID" --description "mta-sr" -o json)"
 SR_API_KEY="$(echo "$SR_KEY_JSON" | jq -r '.api_key // .key')"
 SR_API_SECRET="$(echo "$SR_KEY_JSON" | jq -r '.api_secret // .secret')"
@@ -180,7 +189,15 @@ submit_stmt() {
   sql="$(printf '%s' "$sql" | sed -e 's/[[:space:]]*$//')"
   [ -z "$sql" ] && return 0
   log "Flink statement: $label"
-  local name="mta-$(echo "$label" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | tr -s '-' | sed 's/^-//; s/-$//')-$RANDOM"
+  local name="mta-$(echo "$label" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | tr -s '-' | sed 's/^-//; s/-$//')"
+  # Deterministic name keeps re-runs safe: if a statement of this exact name
+  # already exists, skip it. Re-creating a continuous INSERT would spawn a
+  # duplicate RUNNING job and double CFU + LLM cost, so we do NOT delete it.
+  if confluent flink statement list --environment "$ENV_ID" --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null \
+       | jq -e --arg n "$name" '.[] | select(.name==$n)' >/dev/null; then
+    echo "    -> statement '$name' already exists (skipping)"
+    return 0
+  fi
   confluent flink statement create "$name" \
     --sql "$sql" \
     --compute-pool "$POOL_ID" \
@@ -198,8 +215,7 @@ submit_stmt() {
         local detail
         detail="$(confluent flink statement describe "$name" --environment "$ENV_ID" --cloud "$CLOUD" --region "$REGION" -o json 2>/dev/null | jq -r '.status_detail // ""')"
         if echo "$detail" | grep -qi "already exists"; then
-          echo "    -> already exists (continuing)"
-          confluent flink statement delete "$name" --environment "$ENV_ID" --cloud "$CLOUD" --region "$REGION" --force >/dev/null 2>&1 || true
+          echo "    -> already exists (skipping, not deleting)"
           return 0
         fi
         die "statement '$label' entered $phase — see: confluent flink statement describe $name --environment $ENV_ID --cloud $CLOUD --region $REGION" ;;
@@ -242,7 +258,7 @@ submit_file "$FLINK_DIR/06_dispatcher_agent.sql"
 # ---- Optional: managed HTTP Source Connector (real JSON feed) ----------------
 # Demonstrates the Confluent managed-connector ingest path alongside the live
 # producer: polls a JSON endpoint (ALERTS_HTTP_URL, e.g. MTA service alerts) and
-# lands records in mta.service_alerts with a JSON Schema in Schema Registry — so
+# lands records in mta_service_alerts with a JSON Schema in Schema Registry — so
 # it shows in Stream Lineage as a real source connector. Gated + non-fatal: a
 # config/flag hiccup here must never sink the core Flink pipeline above.
 CONN_TEMPLATE="$SCRIPT_DIR/connectors/http_source_service_alerts.json"
@@ -290,6 +306,7 @@ SCHEMA_REGISTRY_API_KEY=$SR_API_KEY
 SCHEMA_REGISTRY_API_SECRET=$SR_API_SECRET
 
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+GEMINI_API_KEY=${GOOGLEAI_API_KEY:-}
 DISPATCHER_MODEL=${DISPATCHER_MODEL:-claude-haiku-4-5-20251001}
 
 MTA_FEEDS=all
@@ -305,6 +322,8 @@ TOPIC_HEADWAY_ALERTS=mta_headway_alerts
 TOPIC_RECOMMENDATIONS=mta_dispatcher_decisions
 DASHBOARD_GROUP_ID=mta-dashboard
 EOF
+# OUT_ENV holds plaintext API keys/secrets — restrict to the owner.
+chmod 600 "$OUT_ENV"
 
 log "Done. Environment=$ENV_ID Cluster=$CLUSTER_ID Pool=$POOL_ID"
 cat <<'NEXT'
