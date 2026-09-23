@@ -82,6 +82,32 @@ To read that topic in Flink, run [`../flink/09_service_alerts.sql`](../flink/09_
 by hand once data is flowing — its columns must match your feed's JSON keys, which
 is why it isn't auto-submitted.
 
+## Managed HTTP Sink Connector (dispatcher decisions out)
+
+`provision.sh` can also stand up a Confluent **fully-managed HTTP Sink Connector**
+that streams every decision the in-Flink dispatcher writes to
+`mta_dispatcher_decisions` out to an external endpoint — a second managed
+connector (a **Sink**) in Stream Lineage, closing the loop the same governed way
+the source ingests. We own the decisions Avro schema, so there's no feed-shape
+guesswork.
+
+Enable it in `deploy.env`:
+
+```bash
+export ENABLE_HTTP_SINK="true"
+export DECISIONS_WEBHOOK_URL="https://webhook.site/<your-id>"   # or a Slack/Teams/ops webhook
+```
+
+Point `DECISIONS_WEBHOOK_URL` at a Slack/Teams incoming webhook, an ops bridge, or
+a throwaway `https://webhook.site` URL for a live demo. Leave it empty (or set
+`ENABLE_HTTP_SINK=false`) to skip it. Like the source connector, creation is
+**non-fatal** and it's recreated with the current Kafka API key on each run.
+
+Config template: [`connectors/http_sink_dispatcher_decisions.json`](connectors/http_sink_dispatcher_decisions.json).
+Same version caveat as the source: if `confluent connect cluster create` rejects a
+field, build it once in **Console → Connectors → HTTP Sink**, *Download connector
+config*, and drop your values into the template.
+
 ## Choosing the in-Flink LLM (Bedrock or Gemini)
 
 The dispatcher agent's LLM is set by `LLM_PROVIDER` in `deploy.env`:

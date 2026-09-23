@@ -1,0 +1,21 @@
+{
+  "name": "mta-dispatcher-decisions-http-sink",
+  "config": {
+    "connector.class": "HttpSink",
+    "name": "mta-dispatcher-decisions-http-sink",
+
+    "kafka.auth.mode": "KAFKA_API_KEY",
+    "kafka.api.key": "",
+    "kafka.api.secret": "",
+
+    "topics": "mta_dispatcher_decisions",
+    "input.data.format": "AVRO",
+
+    "http.api.url": "",
+    "request.method": "POST",
+    "request.body.format": "json",
+    "batch.max.size": "1",
+
+    "tasks.max": "1"
+  }
+}
