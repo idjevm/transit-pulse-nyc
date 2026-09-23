@@ -12,6 +12,11 @@
 --
 -- The severity tier gives the AI agent (job 06) something to prioritize on.
 --
+-- The WATERMARK carries arrival_time's event-time (rowtime) property forward, the
+-- same policy as mta_headway (job 03). Job 06 relies on it: a first-row
+-- deduplication ordered by a rowtime attribute is append-only, so the dispatcher
+-- agent fires exactly once per distinct alert instead of re-firing on reprocessing.
+--
 -- See the bottom of this file for the OPTIONAL ML_DETECT_ANOMALIES variant, which
 -- learns the normal headway per station instead of using fixed thresholds — the
 -- same GA anomaly function the F1 demo runs on tire temperature.
@@ -28,7 +33,8 @@ CREATE TABLE IF NOT EXISTS `mta_headway_alerts` (
   `headway_seconds` BIGINT,
   `alert_type`      STRING,
   `severity`        STRING,
-  `arrival_time`    TIMESTAMP(3)
+  `arrival_time`    TIMESTAMP(3),
+  WATERMARK FOR `arrival_time` AS `arrival_time` - INTERVAL '5' MINUTE
 ) WITH (
   'changelog.mode' = 'append',
   'connector' = 'confluent',
