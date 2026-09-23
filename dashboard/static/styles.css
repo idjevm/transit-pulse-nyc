@@ -424,11 +424,41 @@ body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Formatted (markdown) answers: cap the height and scroll inside the pane so a
+   long answer is fully readable instead of overrunning the card or clipping. */
+.agent-out.md {
+  white-space: normal;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
 .agent-out:empty { display: none; }
 .agent-out.loading { color: var(--muted); font-style: italic; animation: pulse 1.2s infinite; }
 .agent-out.error { color: var(--red); }
 .agent-out .route-title { font-weight: 700; color: var(--accent); margin-bottom: 4px; }
 .agent-out .route-meta { color: var(--muted); font-size: 0.8rem; margin-top: 8px; }
+.agent-out.md p { margin: 0 0 10px; }
+.agent-out.md p:last-child { margin-bottom: 0; }
+.agent-out.md .md-h {
+  margin: 12px 0 6px;
+  font-size: 0.9rem;
+  letter-spacing: 0.4px;
+  color: var(--accent);
+}
+.agent-out.md ul, .agent-out.md ol { margin: 0 0 10px; padding-left: 20px; }
+.agent-out.md li { margin: 2px 0; }
+.agent-out.md strong { color: #fff; font-weight: 700; }
+.agent-out.md code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  background: #0b1119;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.agent-out.md::-webkit-scrollbar { width: 8px; }
+.agent-out.md::-webkit-scrollbar-thumb { background: #223044; border-radius: 4px; }
+.agent-out.md::-webkit-scrollbar-track { background: transparent; }
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
