@@ -27,7 +27,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 STATIC_DIR = Path(__file__).parent / "static"
 DATA_DIR = Path(__file__).parent.parent / "data"
 PUSH_INTERVAL_SEC = 0.25
+# The interactive agents call a blocking LLM SDK. Run them in a worker thread so
+# the event loop keeps servicing the websocket (the live map must not freeze
+# while an agent thinks), and bound them so a hung provider can't wedge the tab.
+AGENT_TIMEOUT_SEC = 45
 NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
+
+async def _run_agent(fn, *args, **kwargs) -> dict:
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn, *args, **kwargs), AGENT_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        return {
+            "ok": False,
+            "error": f"The agent did not respond within {AGENT_TIMEOUT_SEC}s. The live feed kept running — try again.",
+        }
 
 
 def _load_shapes() -> dict:
@@ -82,10 +96,15 @@ def create_app() -> FastAPI:
     async def api_shapes() -> JSONResponse:
         return JSONResponse(shapes, headers={"Cache-Control": "public, max-age=3600"})
 
+    @app.get("/api/agent-info")
+    async def api_agent_info() -> JSONResponse:
+        return JSONResponse(agents.active_model(), headers=NO_CACHE)
+
     @app.post("/api/advisor")
     async def api_advisor(req: Request) -> JSONResponse:
         body = await req.json()
-        result = agents.rider_advisor(
+        result = await _run_agent(
+            agents.rider_advisor,
             state.snapshot(),
             origin=(body.get("origin") or "").strip(),
             destination=(body.get("destination") or "").strip(),
@@ -96,7 +115,8 @@ def create_app() -> FastAPI:
     @app.post("/api/operator")
     async def api_operator(req: Request) -> JSONResponse:
         body = await req.json()
-        result = agents.operator_insight(
+        result = await _run_agent(
+            agents.operator_insight,
             state.snapshot(),
             question=(body.get("question") or "").strip(),
         )
@@ -105,13 +125,28 @@ def create_app() -> FastAPI:
     @app.post("/api/route-designer")
     async def api_route_designer(req: Request) -> JSONResponse:
         body = await req.json()
-        result = agents.route_designer(
+        result = await _run_agent(
+            agents.route_designer,
             state.snapshot(),
             origin=(body.get("origin") or "").strip(),
             destination=(body.get("destination") or "").strip(),
             constraints=(body.get("constraints") or "").strip(),
         )
         return JSONResponse(result, headers=NO_CACHE)
+
+    @app.post("/api/simulate")
+    async def api_simulate(req: Request) -> JSONResponse:
+        # Judge-triggered demo disruption. Pure in-memory state mutation, so no
+        # worker thread or timeout is needed — it returns instantly and the next
+        # websocket snapshot carries the labeled SIMULATED records to the map.
+        body = await req.json()
+        result = state.inject_simulation((body.get("scenario") or "bunching"))
+        return JSONResponse({"ok": True, **result}, headers=NO_CACHE)
+
+    @app.post("/api/simulate/clear")
+    async def api_simulate_clear() -> JSONResponse:
+        state.clear_simulation()
+        return JSONResponse({"ok": True}, headers=NO_CACHE)
 
     @app.get("/healthz")
     async def healthz() -> dict:

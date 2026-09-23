@@ -83,6 +83,7 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
 const shapeLayer = L.layerGroup().addTo(map);   // route-line polylines
 const vehicleLayer = L.layerGroup().addTo(map); // train/bus markers
 const alertLayer = L.layerGroup().addTo(map);   // alert markers
+const forecastLayer = L.layerGroup().addTo(map); // predictive headway forecasts
 const proposedLayer = L.layerGroup().addTo(map); // route-designer proposal
 
 // trip_key -> {marker, mode, route} so we can move markers instead of redrawing
@@ -129,6 +130,16 @@ function alertIcon(type) {
     html: `<span class="alert-tri ${cls}">▲</span>`,
     iconSize: [26, 26],
     iconAnchor: [13, 13],
+  });
+}
+
+function forecastIcon(type) {
+  const cls = (type || "").toUpperCase() === "PREDICTED_GAP" ? "gap" : "bunching";
+  return L.divIcon({
+    className: "forecast-marker",
+    html: `<span class="forecast-ring ${cls}">◵</span>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
   });
 }
 
@@ -201,8 +212,10 @@ function render(s) {
   renderUpdated(s.updated_ts);
   renderVehicles(s.trains || []);
   renderMapAlerts(s.alerts || [], s.trains || []);
+  renderForecastMap(s.forecasts || [], s.trains || []);
   renderArrivals(s.arrivals || []);
   renderAlerts(s.alerts || []);
+  renderForecastFeed(s.forecasts || []);
   renderRecommendations(s.recommendations || []);
 }
 
@@ -284,15 +297,38 @@ function renderMapAlerts(alerts, trains) {
   const pos = new Map();
   for (const t of trains) if (t.trip_id) pos.set(t.trip_id, [t.lat, t.lon]);
   for (const a of alerts) {
-    const ll = pos.get(a.curr_trip);
+    // Simulated alerts carry explicit coordinates (no live train to anchor to);
+    // real alerts anchor to their involved train's current position.
+    const ll = (a.lat && a.lon) ? [a.lat, a.lon] : pos.get(a.curr_trip);
     if (!ll || !ll[0]) continue;
+    const tag = a.simulated ? '<span class="sim-tt">SIM</span> ' : "";
     L.marker(ll, {icon: alertIcon(a.alert_type), interactive: true, zIndexOffset: 1000})
       .bindTooltip(
-        `<b>${escapeHtml((a.alert_type || "ALERT").toUpperCase())}</b> · ${escapeHtml(a.route_id || "")}<br/>` +
+        `${tag}<b>${escapeHtml((a.alert_type || "ALERT").toUpperCase())}</b> · ${escapeHtml(a.route_id || "")}<br/>` +
         `${escapeHtml(a.stop_name || a.stop_id || "")}<br/>headway ${escapeHtml(a.headway_seconds ?? "--")}s`,
         {direction: "top", className: "train-tt", offset: [0, -10]}
       )
       .addTo(alertLayer);
+  }
+}
+
+// Predictive headway forecasts (flink/08): pulsing ring at the stop, with a
+// "next train in ~Ns" countdown. Simulated forecasts carry explicit coordinates.
+function renderForecastMap(forecasts, trains) {
+  forecastLayer.clearLayers();
+  const pos = new Map();
+  for (const t of trains) if (t.trip_id) pos.set(t.trip_id, [t.lat, t.lon]);
+  for (const f of forecasts) {
+    const ll = (f.lat && f.lon) ? [f.lat, f.lon] : pos.get(f.curr_trip);
+    if (!ll || !ll[0]) continue;
+    const tag = f.simulated ? '<span class="sim-tt">SIM</span> ' : "";
+    L.marker(ll, {icon: forecastIcon(f.forecast_type), interactive: true, zIndexOffset: 900})
+      .bindTooltip(
+        `${tag}<b>${escapeHtml(forecastLabel(f.forecast_type))}</b> · ${escapeHtml(f.route_id || "")}<br/>` +
+        `${escapeHtml(f.stop_name || f.stop_id || "")}<br/>next train in ~${escapeHtml(f.predicted_headway ?? "--")}s`,
+        {direction: "top", className: "train-tt", offset: [0, -10]}
+      )
+      .addTo(forecastLayer);
   }
 }
 
@@ -321,11 +357,31 @@ function renderAlerts(alerts) {
   feed.innerHTML = sorted.map(a => {
     const type = (a.alert_type || "").toUpperCase();
     const typeClass = type === "GAP" ? "gap" : "bunching";
-    return `<li class="alert-item ${typeClass}"><div class="alert-head">` +
+    return `<li class="alert-item ${typeClass}${a.simulated ? " sim" : ""}"><div class="alert-head">` +
       `${routeChip(a.route_id)}<span class="alert-type ${typeClass}">${escapeHtml(type || "ALERT")}</span>` +
+      `${a.simulated ? simBadge() : ""}` +
       `<span class="alert-time">${formatClock(a.ts)}</span></div>` +
       `<div class="alert-body"><span class="station">${escapeHtml(a.stop_name || a.stop_id || "")}</span>` +
       `<span class="headway">headway ${escapeHtml(a.headway_seconds ?? "--")}s</span></div></li>`;
+  }).join("");
+}
+
+// Predictive forecast feed: the "bunching in ~Ns" rider countdown, in text.
+function renderForecastFeed(forecasts) {
+  const feed = document.getElementById("forecast-feed");
+  const tag = document.getElementById("forecast-tag");
+  if (tag) tag.textContent = `${forecasts.length} predicted`;
+  if (!feed) return;
+  if (!forecasts.length) { feed.innerHTML = emptyItem("No predictions right now"); return; }
+  feed.innerHTML = forecasts.map(f => {
+    const cls = (f.forecast_type || "").toUpperCase() === "PREDICTED_GAP" ? "gap" : "bunching";
+    return `<li class="forecast-item ${cls}${f.simulated ? " sim" : ""}"><div class="forecast-head">` +
+      `${routeChip(f.route_id)}<span class="forecast-type ${cls}">${escapeHtml(forecastLabel(f.forecast_type))}</span>` +
+      `${f.simulated ? simBadge() : ""}` +
+      `<span class="alert-time">${escapeHtml(directionLabel(f.direction))}</span></div>` +
+      `<div class="forecast-body"><span class="station">${escapeHtml(f.stop_name || f.stop_id || "")}</span>` +
+      `<span class="countdown">next in ~${escapeHtml(f.predicted_headway ?? "--")}s ` +
+      `<span class="now">(now ${escapeHtml(f.headway_seconds ?? "--")}s)</span></span></div></li>`;
   }).join("");
 }
 
@@ -334,9 +390,10 @@ function renderRecommendations(recs) {
   if (!recs.length) { feed.innerHTML = emptyItem("No recommendations yet"); return; }
   const sorted = [...recs].sort((a, b) => (b.ts || 0) - (a.ts || 0));
   feed.innerHTML = sorted.map(r =>
-    `<li class="rec-item"><div class="rec-head">` +
+    `<li class="rec-item${r.simulated ? " sim" : ""}"><div class="rec-head">` +
     `<span class="action-badge ${actionClass(r.action)}">${escapeHtml(r.action || "MONITOR")}</span>` +
     `${routeChip(r.route_id)}<span class="station">${escapeHtml(r.stop_name || r.stop_id || "")}</span>` +
+    `${r.simulated ? simBadge() : ""}` +
     `<span class="alert-time">${formatClock(r.ts)}</span></div>` +
     `<p class="rec-note">${escapeHtml(r.dispatcher_note || "")}</p>` +
     (r.rider_message ? `<p class="rider-msg">&ldquo;${escapeHtml(r.rider_message)}&rdquo;</p>` : "") +
@@ -388,6 +445,10 @@ function formatClock(ts) {
 }
 function actionClass(action) { return (action || "MONITOR").toUpperCase().replace(/[^A-Z]+/g, "-"); }
 function emptyItem(text) { return `<li class="empty-item">${text}</li>`; }
+function simBadge() { return `<span class="sim-badge" title="Simulated demo scenario">SIM</span>`; }
+function forecastLabel(type) {
+  return (type || "").toUpperCase() === "PREDICTED_GAP" ? "PREDICTED GAP" : "PREDICTED BUNCHING";
+}
 
 // ---- wire up controls ----
 function wireControls() {
@@ -419,6 +480,26 @@ function wireControls() {
     filters.showShapes = e.target.checked;
     redrawShapes();
   });
+
+  const simRun = document.getElementById("sim-run");
+  const simClear = document.getElementById("sim-clear");
+  if (simRun) simRun.addEventListener("click", () => {
+    const scenario = document.getElementById("sim-scenario")?.value || "bunching";
+    postSimulation("/api/simulate", {scenario});
+  });
+  if (simClear) simClear.addEventListener("click", () => postSimulation("/api/simulate/clear", {}));
+}
+
+// Judge-triggered demo disruption. Fire-and-forget: the next websocket snapshot
+// carries the labeled SIMULATED records, so there is nothing to render here.
+async function postSimulation(url, body) {
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+  } catch (_) { /* the live feed keeps running; a failed inject is harmless */ }
 }
 
 // ---- AI agents console ----
@@ -468,14 +549,16 @@ async function runAgent(name, btn) {
       body: JSON.stringify(body),
     });
     const data = await resp.json();
+    if (data.model) setAgentModel(data.model);
     if (!data.ok) {
       out.className = "agent-out error";
       out.textContent = data.error || "Agent request failed.";
     } else if (name === "route") {
       renderProposal(out, data.proposal);
     } else {
-      out.className = "agent-out";
-      out.textContent = data.answer || "(no answer)";
+      out.className = "agent-out md";
+      out.innerHTML = data.answer ? renderMarkdown(data.answer) : "<p>(no answer)</p>";
+      out.scrollTop = 0;
     }
   } catch (err) {
     out.className = "agent-out error";
@@ -483,6 +566,66 @@ async function runAgent(name, btn) {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ---- model label ----
+function setAgentModel(model) {
+  const tag = document.getElementById("agent-model-tag");
+  if (!tag) return;
+  const label = typeof model === "string" ? model : (model && model.label) || "";
+  tag.textContent = label && label !== "not configured"
+    ? `${label} · live-grounded`
+    : (label || "live-grounded");
+}
+
+async function loadAgentInfo() {
+  try {
+    const resp = await fetch("/api/agent-info");
+    const info = await resp.json();
+    setAgentModel(info);
+  } catch (_) { /* leave the default tag */ }
+}
+
+// ---- tiny, XSS-safe markdown renderer for agent answers ----
+// LLM answers come back with **bold**, bullets, and headings; rendering them as
+// plain text showed literal markup. We escape first, then apply a limited set of
+// transforms, so nothing the model returns can inject markup.
+function inlineMd(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*(?!\s)([^*]+?)\*/g, "$1<em>$2</em>");
+}
+
+function renderMarkdown(text) {
+  const lines = escapeHtml(String(text)).split(/\r?\n/);
+  let html = "";
+  let listType = null;
+  let para = [];
+  const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+  const flushPara = () => { if (para.length) { html += `<p>${inlineMd(para.join(" "))}</p>`; para = []; } };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { flushPara(); closeList(); continue; }
+    let m;
+    if ((m = line.match(/^#{1,6}\s+(.*)$/))) {
+      flushPara(); closeList();
+      html += `<h4 class="md-h">${inlineMd(m[1])}</h4>`;
+    } else if ((m = line.match(/^[-*•]\s+(.*)$/))) {
+      flushPara();
+      if (listType !== "ul") { closeList(); html += "<ul>"; listType = "ul"; }
+      html += `<li>${inlineMd(m[1])}</li>`;
+    } else if ((m = line.match(/^\d+[.)]\s+(.*)$/))) {
+      flushPara();
+      if (listType !== "ol") { closeList(); html += "<ol>"; listType = "ol"; }
+      html += `<li>${inlineMd(m[1])}</li>`;
+    } else {
+      closeList();
+      para.push(line);
+    }
+  }
+  flushPara(); closeList();
+  return html || `<p>${inlineMd(escapeHtml(String(text)))}</p>`;
 }
 
 function renderProposal(out, p) {
@@ -524,4 +667,5 @@ function escapeHtml(s) {
 wireControls();
 wireAgents();
 loadShapes();
+loadAgentInfo();
 connect();
