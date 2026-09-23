@@ -49,12 +49,22 @@ DASHBOARD_GROUP_ID = os.environ.get("DASHBOARD_GROUP_ID", "mta-dashboard")
 
 
 def kafka_producer_conf() -> dict:
+    # Reliability: the idempotent producer guarantees no duplicate records on
+    # retry and preserved per-partition order. Idempotence implies acks=all and
+    # bounded in-flight requests (librdkafka enforces this); we set acks
+    # explicitly to document intent. lz4 + a small linger batch the burst each
+    # poll cycle emits without adding meaningful latency.
     return {
         "bootstrap.servers": KAFKA_BOOTSTRAP,
         "security.protocol": "SASL_SSL",
         "sasl.mechanisms": "PLAIN",
         "sasl.username": KAFKA_API_KEY,
         "sasl.password": KAFKA_API_SECRET,
+        "client.id": "mta-producer",
+        "enable.idempotence": True,
+        "acks": "all",
+        "compression.type": "lz4",
+        "linger.ms": 50,
     }
 
 
