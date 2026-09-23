@@ -18,8 +18,10 @@ ENV_FILE="$SCRIPT_DIR/deploy.env"
 
 CLOUD="${CLOUD:-aws}"
 REGION="${REGION:-us-east-1}"
-ENV_NAME="${ENV_NAME:-default}"
-CLUSTER_NAME="${CLUSTER_NAME:-cluster_0}"
+# Defaults MUST match provision.sh, else a bare teardown resolves the wrong
+# environment/cluster (falls back to whatever is "current") and cleans nothing.
+ENV_NAME="${ENV_NAME:-MTA-STREAMING-INTELLIGENCE}"
+CLUSTER_NAME="${CLUSTER_NAME:-MTA-CLUSTER}"
 POOL_NAME="${POOL_NAME:-MTA-FLINK-POOL}"
 CONFIRM=true
 DELETE_ALL=false

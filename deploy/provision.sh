@@ -273,24 +273,62 @@ if [ "${ENABLE_HTTP_SOURCE:-true}" = "true" ] && [ -n "${ALERTS_HTTP_URL:-}" ] &
   curl -s -X PUT -u "$SR_API_KEY:$SR_API_SECRET" -H "Content-Type: application/json" \
     "$SR_URL/config/mta_service_alerts-value" -d '{"compatibility": "NONE"}' >/dev/null 2>&1 || true
 
-  # Check if connector already exists
-  if confluent connect cluster list --cluster "$CLUSTER_ID" --environment "$ENV_ID" 2>/dev/null | grep -q "mta-service-alerts-http-source"; then
-    echo "    -> connector already active (status: RUNNING)"
-  else
-    CONN_CFG="$(mktemp)"
-    jq --arg k "$KAFKA_API_KEY" --arg s "$KAFKA_API_SECRET" --arg u "$ALERTS_HTTP_URL" \
-      '.config."kafka.api.key"=$k | .config."kafka.api.secret"=$s | .config.url=$u' \
-      "$CONN_TEMPLATE" > "$CONN_CFG"
-    if confluent connect cluster create --config-file "$CONN_CFG" --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json >/dev/null 2>/tmp/mta_conn_err; then
-      echo "    -> connector submitted (check: confluent connect cluster list)"
-    else
-      printf '\033[1;33m    WARN: connector create failed — core pipeline is unaffected.\n    %s\n    Fix flags/config, then re-run, or set ENABLE_HTTP_SOURCE=false to skip.\033[0m\n' \
-        "$(tr '\n' ' ' < /tmp/mta_conn_err)" >&2
-    fi
-    rm -f "$CONN_CFG" /tmp/mta_conn_err
+  # This run rotated the Kafka API key above, which INVALIDATES the key any
+  # previously-created connector was using. So if the connector already exists,
+  # delete and recreate it with the fresh key — otherwise it keeps running
+  # against a deleted key and silently stops producing to mta_service_alerts.
+  EXIST_ID="$(confluent connect cluster list --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json 2>/dev/null | jq -r '.[] | select(.name=="mta-service-alerts-http-source") | .id' | head -1)"
+  if [ -n "$EXIST_ID" ]; then
+    echo "    -> connector exists ($EXIST_ID) — recreating with the current API key"
+    confluent connect cluster delete "$EXIST_ID" --cluster "$CLUSTER_ID" --environment "$ENV_ID" --force >/dev/null 2>&1 || true
   fi
+  CONN_CFG="$(mktemp)"
+  jq --arg k "$KAFKA_API_KEY" --arg s "$KAFKA_API_SECRET" --arg u "$ALERTS_HTTP_URL" \
+    '.config."kafka.api.key"=$k | .config."kafka.api.secret"=$s | .config.url=$u' \
+    "$CONN_TEMPLATE" > "$CONN_CFG"
+  if confluent connect cluster create --config-file "$CONN_CFG" --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json >/dev/null 2>/tmp/mta_conn_err; then
+    echo "    -> connector submitted (check: confluent connect cluster list)"
+  else
+    printf '\033[1;33m    WARN: connector create failed — core pipeline is unaffected.\n    %s\n    Fix flags/config, then re-run, or set ENABLE_HTTP_SOURCE=false to skip.\033[0m\n' \
+      "$(tr '\n' ' ' < /tmp/mta_conn_err)" >&2
+  fi
+  rm -f "$CONN_CFG" /tmp/mta_conn_err
 else
   echo "    (skipping HTTP Source connector: set ENABLE_HTTP_SOURCE=true and ALERTS_HTTP_URL in deploy.env to enable)"
+fi
+
+# ---- Optional: managed HTTP Sink Connector (dispatcher decisions -> webhook) -
+# Closes the loop the same managed way we ingest: streams every decision the
+# in-Flink dispatcher writes to mta_dispatcher_decisions out to an external ops
+# endpoint (DECISIONS_WEBHOOK_URL — a Slack/Teams incoming webhook, ops bridge,
+# or https://webhook.site for a live demo). This adds a second managed connector
+# — a Sink — to Stream Lineage alongside the HTTP Source. We own the decisions
+# Avro schema, so there is no feed-shape guesswork here. Gated + non-fatal: a
+# hiccup must never sink the core pipeline.
+SINK_TEMPLATE="$SCRIPT_DIR/connectors/http_sink_dispatcher_decisions.json"
+if [ "${ENABLE_HTTP_SINK:-false}" = "true" ] && [ -n "${DECISIONS_WEBHOOK_URL:-}" ] && [ -f "$SINK_TEMPLATE" ]; then
+  log "HTTP Sink connector: mta-dispatcher-decisions-http-sink"
+  echo "    url=$DECISIONS_WEBHOOK_URL  topic=mta_dispatcher_decisions"
+
+  # Same key-rotation guard as the source connector above.
+  SINK_EXIST_ID="$(confluent connect cluster list --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json 2>/dev/null | jq -r '.[] | select(.name=="mta-dispatcher-decisions-http-sink") | .id' | head -1)"
+  if [ -n "$SINK_EXIST_ID" ]; then
+    echo "    -> connector exists ($SINK_EXIST_ID) — recreating with the current API key"
+    confluent connect cluster delete "$SINK_EXIST_ID" --cluster "$CLUSTER_ID" --environment "$ENV_ID" --force >/dev/null 2>&1 || true
+  fi
+  SINK_CFG="$(mktemp)"
+  jq --arg k "$KAFKA_API_KEY" --arg s "$KAFKA_API_SECRET" --arg u "$DECISIONS_WEBHOOK_URL" \
+    '.config."kafka.api.key"=$k | .config."kafka.api.secret"=$s | .config."http.api.url"=$u' \
+    "$SINK_TEMPLATE" > "$SINK_CFG"
+  if confluent connect cluster create --config-file "$SINK_CFG" --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json >/dev/null 2>/tmp/mta_sink_err; then
+    echo "    -> connector submitted (check: confluent connect cluster list)"
+  else
+    printf '\033[1;33m    WARN: sink connector create failed — core pipeline is unaffected.\n    %s\n    Fix flags/config, then re-run, or set ENABLE_HTTP_SINK=false to skip.\033[0m\n' \
+      "$(tr '\n' ' ' < /tmp/mta_sink_err)" >&2
+  fi
+  rm -f "$SINK_CFG" /tmp/mta_sink_err
+else
+  echo "    (skipping HTTP Sink connector: set ENABLE_HTTP_SINK=true and DECISIONS_WEBHOOK_URL in deploy.env to enable)"
 fi
 
 # ---- write .env for the producer + dashboard --------------------------------
