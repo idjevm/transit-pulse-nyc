@@ -73,8 +73,12 @@ elif [ -n "${CONFLUENT_CLOUD_API_KEY:-}" ] && [ -n "${CONFLUENT_CLOUD_API_SECRET
   echo "    logging in non-interactively with the Cloud API key from deploy.env"
   run "confluent login >/dev/null 2>&1 || true"
 else
-  echo "    no active session and no Cloud API key set — starting interactive login"
-  run "confluent login"
+  if [ -t 0 ]; then
+    echo "    no active session and no Cloud API key set — starting interactive login"
+    run "confluent login"
+  else
+    die "not authenticated — run 'confluent login --save' in your terminal (or set CONFLUENT_CLOUD_API_KEY in deploy.env), then re-run"
+  fi
 fi
 confluent environment list -o json >/dev/null 2>&1 \
   || die "not authenticated — run 'confluent login' (or set the Cloud API key in deploy.env) and re-run"
