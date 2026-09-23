@@ -57,7 +57,16 @@ def _build_consumer() -> Consumer:
 
 def _on_assign(consumer: Consumer, partitions) -> None:
     for tp in partitions:
-        tp.offset = OFFSET_BEGINNING if tp.topic in EARLIEST else OFFSET_END
+        if tp.topic in EARLIEST:
+            tp.offset = OFFSET_BEGINNING
+        elif tp.topic == config.TOPIC_ARRIVAL_ESTIMATES:
+            try:
+                _low, high = consumer.get_watermark_offsets(tp, timeout=2.0)
+                tp.offset = max(0, high - 250)
+            except Exception:
+                tp.offset = OFFSET_END
+        else:
+            tp.offset = OFFSET_END
     consumer.assign(partitions)
 
 
@@ -112,6 +121,13 @@ def run_consumer(state: DashboardState, stop) -> None:
                 continue
             if value is None:
                 continue
+            if msg.key() and isinstance(value, dict):
+                try:
+                    key_val = deserialize(msg.key(), SerializationContext(topic, MessageField.KEY))
+                    if isinstance(key_val, dict):
+                        value.update(key_val)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("key decode failed on %s: %s", topic, exc)
             routes[topic](value)
             state.clear_error()
     except Exception as exc:  # noqa: BLE001

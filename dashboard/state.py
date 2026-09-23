@@ -117,8 +117,8 @@ class DashboardState:
             self._last_record_ts = _now()
 
     def update_arrival(self, a: dict) -> None:
-        trip_id = a.get("trip_id")
-        stop_id = a.get("stop_id")
+        trip_id = a.get("trip_id") or a.get("curr_trip") or f"{a.get('route_id')}-{a.get('direction')}-{a.get('stop_name')}"
+        stop_id = a.get("stop_id") or a.get("stop_name")
         if not trip_id or not stop_id:
             return
         with self._lock:
@@ -129,6 +129,7 @@ class DashboardState:
                 "stop_name": a.get("stop_name", ""),
                 "trip_id": trip_id,
                 "arrival_epoch": int(a.get("arrival_epoch") or 0),
+                "eta_seconds": int(a["eta_seconds"]) if a.get("eta_seconds") is not None else None,
                 "_seen": _now(),
             }
             self._last_record_ts = _now()
@@ -258,8 +259,14 @@ class DashboardState:
             for a in self._arrivals.values():
                 if now - a["_seen"] > ARRIVAL_TTL_SEC:
                     continue
-                eta = a["arrival_epoch"] - int(now)
-                if eta < -30 or eta > 1800:
+                if a.get("arrival_epoch"):
+                    eta = a["arrival_epoch"] - int(now)
+                elif a.get("eta_seconds") is not None:
+                    elapsed = int(now - a["_seen"])
+                    eta = a["eta_seconds"] - elapsed
+                else:
+                    continue
+                if eta < 0 or eta > 1800:
                     continue
                 arrivals.append({
                     "route_id": a["route_id"], "direction": a["direction"],
@@ -267,6 +274,7 @@ class DashboardState:
                     "trip_id": a["trip_id"], "eta_seconds": eta,
                 })
             arrivals.sort(key=lambda x: x["eta_seconds"])
+            arrivals = arrivals[:MAX_ARRIVALS_OUT]
             # Evict expired entries from the backing dicts so they don't grow
             # unbounded over a service day; TTL is by last-seen, independent of
             # the eta-window filtering applied to the output above.
