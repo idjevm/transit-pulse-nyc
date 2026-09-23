@@ -9,9 +9,11 @@ producer uses, run in reverse (mirrors the F1 pitwall consumer).
   - mta_arrival_estimates : tail from latest (continuously re-emitted)
   - mta_headway_alerts     : from earliest (low-volume; show recent history)
   - mta_dispatcher_decisions : from earliest (low-volume AI output)
+  - mta_headway_forecast   : from earliest (low-volume predictive output, flink/08)
 
 Topics that don't exist yet (the Flink jobs may not be running) are handled
-gracefully: UNKNOWN_TOPIC is suppressed until Flink creates them.
+gracefully: UNKNOWN_TOPIC is suppressed until Flink creates them. The forecast
+job (08) is optional, so its topic is expected to be absent in many runs.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from producers import config  # noqa: E402
 
 logger = logging.getLogger("mta-dashboard.consumer")
 
-EARLIEST = {config.TOPIC_HEADWAY_ALERTS, config.TOPIC_DECISIONS}
+EARLIEST = {config.TOPIC_HEADWAY_ALERTS, config.TOPIC_DECISIONS, config.TOPIC_FORECAST}
 
 BENIGN = frozenset({
     KafkaError.UNKNOWN_TOPIC_OR_PART,
@@ -66,6 +68,7 @@ def run_consumer(state: DashboardState, stop) -> None:
         config.TOPIC_ARRIVAL_ESTIMATES,
         config.TOPIC_HEADWAY_ALERTS,
         config.TOPIC_DECISIONS,
+        config.TOPIC_FORECAST,
     ]
     routes = {
         config.TOPIC_VEHICLE_POSITIONS: state.update_vehicle,
@@ -73,6 +76,7 @@ def run_consumer(state: DashboardState, stop) -> None:
         config.TOPIC_ARRIVAL_ESTIMATES: state.update_arrival,
         config.TOPIC_HEADWAY_ALERTS: state.add_alert,
         config.TOPIC_DECISIONS: state.add_recommendation,
+        config.TOPIC_FORECAST: state.update_forecast,
     }
 
     try:

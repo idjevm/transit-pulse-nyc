@@ -27,6 +27,9 @@ TOPIC_ARRIVAL_ESTIMATES = os.environ.get("TOPIC_ARRIVAL_ESTIMATES", "mta_arrival
 TOPIC_HEADWAY_ALERTS = os.environ.get("TOPIC_HEADWAY_ALERTS", "mta_headway_alerts")
 TOPIC_DECISIONS = os.environ.get("TOPIC_RECOMMENDATIONS", "mta_dispatcher_decisions")
 TOPIC_BUS_POSITIONS = os.environ.get("TOPIC_BUS_POSITIONS", "mta_bus_positions")
+# Predictive headway forecast (flink/08). Optional job: the consumer tolerates the
+# topic not existing yet, so this is safe to wire up whether or not 08 is running.
+TOPIC_FORECAST = os.environ.get("TOPIC_FORECAST", "mta_headway_forecast")
 
 # ---- Producer tuning ----
 MTA_FEEDS = os.environ.get("MTA_FEEDS", "all")
@@ -49,12 +52,22 @@ DASHBOARD_GROUP_ID = os.environ.get("DASHBOARD_GROUP_ID", "mta-dashboard")
 
 
 def kafka_producer_conf() -> dict:
+    # Reliability: the idempotent producer guarantees no duplicate records on
+    # retry and preserved per-partition order. Idempotence implies acks=all and
+    # bounded in-flight requests (librdkafka enforces this); we set acks
+    # explicitly to document intent. lz4 + a small linger batch the burst each
+    # poll cycle emits without adding meaningful latency.
     return {
         "bootstrap.servers": KAFKA_BOOTSTRAP,
         "security.protocol": "SASL_SSL",
         "sasl.mechanisms": "PLAIN",
         "sasl.username": KAFKA_API_KEY,
         "sasl.password": KAFKA_API_SECRET,
+        "client.id": "mta-producer",
+        "enable.idempotence": True,
+        "acks": "all",
+        "compression.type": "lz4",
+        "linger.ms": 50,
     }
 
 
