@@ -468,14 +468,16 @@ async function runAgent(name, btn) {
       body: JSON.stringify(body),
     });
     const data = await resp.json();
+    if (data.model) setAgentModel(data.model);
     if (!data.ok) {
       out.className = "agent-out error";
       out.textContent = data.error || "Agent request failed.";
     } else if (name === "route") {
       renderProposal(out, data.proposal);
     } else {
-      out.className = "agent-out";
-      out.textContent = data.answer || "(no answer)";
+      out.className = "agent-out md";
+      out.innerHTML = data.answer ? renderMarkdown(data.answer) : "<p>(no answer)</p>";
+      out.scrollTop = 0;
     }
   } catch (err) {
     out.className = "agent-out error";
@@ -483,6 +485,66 @@ async function runAgent(name, btn) {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ---- model label ----
+function setAgentModel(model) {
+  const tag = document.getElementById("agent-model-tag");
+  if (!tag) return;
+  const label = typeof model === "string" ? model : (model && model.label) || "";
+  tag.textContent = label && label !== "not configured"
+    ? `${label} · live-grounded`
+    : (label || "live-grounded");
+}
+
+async function loadAgentInfo() {
+  try {
+    const resp = await fetch("/api/agent-info");
+    const info = await resp.json();
+    setAgentModel(info);
+  } catch (_) { /* leave the default tag */ }
+}
+
+// ---- tiny, XSS-safe markdown renderer for agent answers ----
+// LLM answers come back with **bold**, bullets, and headings; rendering them as
+// plain text showed literal markup. We escape first, then apply a limited set of
+// transforms, so nothing the model returns can inject markup.
+function inlineMd(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*(?!\s)([^*]+?)\*/g, "$1<em>$2</em>");
+}
+
+function renderMarkdown(text) {
+  const lines = escapeHtml(String(text)).split(/\r?\n/);
+  let html = "";
+  let listType = null;
+  let para = [];
+  const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+  const flushPara = () => { if (para.length) { html += `<p>${inlineMd(para.join(" "))}</p>`; para = []; } };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { flushPara(); closeList(); continue; }
+    let m;
+    if ((m = line.match(/^#{1,6}\s+(.*)$/))) {
+      flushPara(); closeList();
+      html += `<h4 class="md-h">${inlineMd(m[1])}</h4>`;
+    } else if ((m = line.match(/^[-*•]\s+(.*)$/))) {
+      flushPara();
+      if (listType !== "ul") { closeList(); html += "<ul>"; listType = "ul"; }
+      html += `<li>${inlineMd(m[1])}</li>`;
+    } else if ((m = line.match(/^\d+[.)]\s+(.*)$/))) {
+      flushPara();
+      if (listType !== "ol") { closeList(); html += "<ol>"; listType = "ol"; }
+      html += `<li>${inlineMd(m[1])}</li>`;
+    } else {
+      closeList();
+      para.push(line);
+    }
+  }
+  flushPara(); closeList();
+  return html || `<p>${inlineMd(escapeHtml(String(text)))}</p>`;
 }
 
 function renderProposal(out, p) {
@@ -524,4 +586,5 @@ function escapeHtml(s) {
 wireControls();
 wireAgents();
 loadShapes();
+loadAgentInfo();
 connect();
