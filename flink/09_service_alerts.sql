@@ -35,9 +35,35 @@ WITH (
   'scan.startup.mode' = 'earliest-offset'
 );
 
--- Optional: a governed view of currently-active alerts the dashboard could read.
+-- Optional: a governed projection of active alerts the dashboard could read.
+-- Uses the REAL feed columns declared above — an earlier draft referenced three
+-- columns this table does not have and would not have parsed. status_label is
+-- free text from the feed (e.g. 'delays', 'planned work'); adjust the filter to
+-- your feed's vocabulary once data is flowing.
 -- CREATE TABLE IF NOT EXISTS `mta_active_alerts`
 -- WITH ('changelog.mode' = 'append') AS
--- SELECT `route_id`, `header`, `description`, `updated_at`
+-- SELECT `event_id`, `agency`, `affected`, `status_label`, `header`, `description`, `date`
 -- FROM `mta_service_alerts`
--- WHERE LOWER(`status`) = 'active';
+-- WHERE `status_label` IS NOT NULL AND `status_label` <> '';
+--
+-- Prefer the latest update per alert? Alerts re-publish with an incrementing
+-- update_number, so key an UPSERT view on event_id and first-row dedup on date:
+-- CREATE TABLE IF NOT EXISTS `mta_active_alerts` (
+--   `event_id`     STRING,
+--   `agency`       STRING,
+--   `affected`     STRING,
+--   `status_label` STRING,
+--   `header`       STRING,
+--   `description`  STRING,
+--   `date`         BIGINT,
+--   PRIMARY KEY (`event_id`) NOT ENFORCED
+-- ) DISTRIBUTED BY (`event_id`) INTO 3 BUCKETS
+-- WITH ('changelog.mode' = 'upsert', 'connector' = 'confluent', 'value.format' = 'avro-registry')
+-- AS
+-- SELECT `event_id`, `agency`, `affected`, `status_label`, `header`, `description`, `date`
+-- FROM (
+--   SELECT `event_id`, `agency`, `affected`, `status_label`, `header`, `description`, `date`,
+--          ROW_NUMBER() OVER (PARTITION BY `event_id` ORDER BY `date` DESC) AS rn
+--   FROM `mta_service_alerts`
+-- )
+-- WHERE rn = 1;
