@@ -367,6 +367,84 @@ body {
   padding-left: 9px;
 }
 
+/* ---- disruption simulator (judge-triggered) ---- */
+.ctl-group.sim { gap: 6px; }
+.sim-btn {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #06121a;
+  background: var(--orange);
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.sim-btn:hover { filter: brightness(1.08); }
+.sim-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sim-btn.sim-clear { background: #2c3a4e; color: var(--text); }
+.sim-badge {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #06121a;
+  background: var(--orange);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.sim-tt { color: var(--orange); font-weight: 800; }
+.alert-item.sim, .rec-item.sim, .forecast-item.sim { border-color: var(--orange); }
+
+/* ---- predictive headway forecast ---- */
+.forecast-tag { color: var(--accent); border-color: #173041; background: #0c1722; }
+.legend-ico.forecast-ico { color: var(--accent); }
+.forecasts { max-height: 240px; }
+.forecast-marker { background: none; border: none; }
+.forecast-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  font-size: 1.2rem;
+  text-shadow: 0 0 6px rgba(0,0,0,0.9);
+  animation: alertpulse 1.6s infinite;
+}
+.forecast-ring.bunching { color: var(--orange); }
+.forecast-ring.gap { color: var(--amber); }
+.forecast-item {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+}
+.forecast-item.bunching { border-left-color: var(--orange); }
+.forecast-item.gap { border-left-color: var(--amber); }
+.forecast-head { display: flex; align-items: center; gap: 8px; }
+.forecast-type {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.forecast-type.bunching { color: var(--orange); background: rgba(255, 140, 59, 0.14); }
+.forecast-type.gap { color: var(--amber); background: rgba(255, 176, 32, 0.14); }
+.forecast-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 0.82rem;
+}
+.forecast-body .station { color: var(--text); }
+.forecast-body .countdown { font-family: var(--mono); color: var(--accent); font-size: 0.78rem; }
+.forecast-body .countdown .now { color: var(--muted); }
+
 /* ---- AI agents console ---- */
 .agent-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .agent-tab {
