@@ -37,9 +37,34 @@ logger = logging.getLogger("mta-producer")
 # GTFS-RT VehiclePosition.VehicleStopStatus enum -> string.
 _STATUS = {0: "INCOMING_AT", 1: "STOPPED_AT", 2: "IN_TRANSIT_TO"}
 
+# Per-cycle delivery-report stats, updated by the produce callback during
+# poll()/flush(). Without a callback, a broker-side delivery failure is silent.
+_delivery = {"ok": 0, "failed": 0}
+_MAX_DELIVERY_WARNINGS = 10  # cap log spam if the broker is down for a whole cycle
+
 
 def _now_millis() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _on_delivery(err, msg) -> None:
+    if err is not None:
+        _delivery["failed"] += 1
+        if _delivery["failed"] <= _MAX_DELIVERY_WARNINGS:
+            logger.warning("delivery failed | topic=%s | %s", msg.topic(), err)
+    else:
+        _delivery["ok"] += 1
+
+
+def _produce(producer, topic: str, key: bytes, value: bytes, timestamp: int) -> None:
+    """Produce one record, stamping the Kafka record timestamp with event-time so
+    Flink's source watermark tracks event-time, not ingestion time. Retries once
+    on a full local queue (BufferError) after letting it drain."""
+    try:
+        producer.produce(topic, key=key, value=value, timestamp=timestamp, on_delivery=_on_delivery)
+    except BufferError:
+        producer.poll(0.5)
+        producer.produce(topic, key=key, value=value, timestamp=timestamp, on_delivery=_on_delivery)
 
 
 def _direction(stop_id: str, trip_id: str) -> str:
@@ -180,6 +205,7 @@ def run() -> None:
     while True:
         cycle_start = time.time()
         n_vp = n_tu = n_bus = 0
+        _delivery["ok"] = _delivery["failed"] = 0
         for key, url in selected.items():
             feed = _fetch(url)
             if feed is None:
@@ -189,18 +215,22 @@ def run() -> None:
                 if entity.HasField("vehicle"):
                     rec = _vehicle_record(entity, feed_ts_ms)
                     if rec:
-                        producer.produce(
+                        _produce(
+                            producer,
                             config.TOPIC_VEHICLE_POSITIONS,
-                            key=rec["trip_id"].encode("utf-8"),
-                            value=serializer(rec, vp_ctx),
+                            rec["trip_id"].encode("utf-8"),
+                            serializer(rec, vp_ctx),
+                            rec["event_time"],
                         )
                         n_vp += 1
                 if entity.HasField("trip_update"):
                     for rec in _trip_update_records(entity, feed_ts_ms):
-                        producer.produce(
+                        _produce(
+                            producer,
                             config.TOPIC_TRIP_UPDATES,
-                            key=rec["trip_id"].encode("utf-8"),
-                            value=serializer(rec, tu_ctx),
+                            rec["trip_id"].encode("utf-8"),
+                            serializer(rec, tu_ctx),
+                            rec["event_time"],
                         )
                         n_tu += 1
             producer.poll(0)
@@ -218,17 +248,21 @@ def run() -> None:
                         continue
                     rec = _bus_record(entity, bus_ts_ms)
                     if rec:
-                        producer.produce(
+                        _produce(
+                            producer,
                             config.TOPIC_BUS_POSITIONS,
-                            key=rec["trip_id"].encode("utf-8"),
-                            value=serializer(rec, bus_ctx),
+                            rec["trip_id"].encode("utf-8"),
+                            serializer(rec, bus_ctx),
+                            rec["event_time"],
                         )
                         n_bus += 1
                 producer.poll(0)
 
-        producer.flush(timeout=10)
-        logger.info("cycle done | vehicle_positions=%d trip_updates=%d buses=%d | %.1fs",
-                    n_vp, n_tu, n_bus, time.time() - cycle_start)
+        remaining = producer.flush(timeout=10)
+        if remaining:
+            logger.warning("flush timed out with %d message(s) still queued", remaining)
+        logger.info("cycle done | vehicle_positions=%d trip_updates=%d buses=%d | delivered=%d failed=%d | %.1fs",
+                    n_vp, n_tu, n_bus, _delivery["ok"], _delivery["failed"], time.time() - cycle_start)
 
         elapsed = time.time() - cycle_start
         time.sleep(max(0.0, config.POLL_INTERVAL_SECONDS - elapsed))

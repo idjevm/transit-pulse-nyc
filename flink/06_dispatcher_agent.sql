@@ -9,8 +9,22 @@
 -- Output: mta_dispatcher_decisions
 --
 -- Run 05_create_model.sql first (creates llm_dispatcher_model), then run this.
--- The agent only fires on real alerts (job 04 already filtered to
--- BUNCHING/GAP), so LLM call volume stays low and cheap.
+--
+-- Two correctness properties this job guarantees:
+--
+--  1. Effectively-once per alert. Alerts are first-row deduplicated on
+--     (route_id, direction, stop_id, curr_trip, prev_trip) ordered by the
+--     arrival_time ROWTIME — an append-only dedup — so the (expensive,
+--     non-deterministic) agent fires exactly once per distinct alert even if
+--     job 04 reprocesses. mta_dispatcher_decisions is an UPSERT table keyed by
+--     the same identity, so a reprocessed alert overwrites its own row rather
+--     than appending a duplicate decision.
+--
+--  2. Deterministic control action. The `action` column is computed in SQL from
+--     the alert (same thresholds the prompt states), so the operator-facing
+--     decision never depends on model output. The model's own suggestion is kept
+--     alongside as `llm_action` for audit, and the LLM still writes the
+--     natural-language dispatcher_note / rider_message / reasoning.
 
 CREATE AGENT `dispatcher_agent`
 USING MODEL `llm_dispatcher_model`
@@ -37,9 +51,51 @@ the note and the message (N = uptown/Bronx-bound, S = downtown/Brooklyn-bound).'
 WITH ('max_iterations' = '3');
 
 
-CREATE TABLE IF NOT EXISTS `mta_dispatcher_decisions`
-WITH ('changelog.mode' = 'append')
-AS
+CREATE TABLE IF NOT EXISTS `mta_dispatcher_decisions` (
+  `route_id`        STRING,
+  `direction`       STRING,
+  `stop_id`         STRING,
+  `stop_name`       STRING,
+  `stop_lat`        DOUBLE,
+  `stop_lon`        DOUBLE,
+  `alert_type`      STRING,
+  `severity`        STRING,
+  `headway_seconds` BIGINT,
+  `prev_trip`       STRING,
+  `curr_trip`       STRING,
+  `arrival_time`    TIMESTAMP(3),
+  `action`          STRING,
+  `llm_action`      STRING,
+  `dispatcher_note` STRING,
+  `rider_message`   STRING,
+  `reasoning`       STRING,
+  `raw_response`    STRING,
+  PRIMARY KEY (`route_id`, `direction`, `stop_id`, `curr_trip`, `prev_trip`) NOT ENFORCED
+) DISTRIBUTED BY (`route_id`, `direction`, `stop_id`, `curr_trip`, `prev_trip`) INTO 3 BUCKETS
+WITH (
+  'changelog.mode' = 'upsert',
+  'connector' = 'confluent',
+  'value.format' = 'avro-registry'
+);
+
+INSERT INTO `mta_dispatcher_decisions`
+WITH deduped_alerts AS (
+  SELECT
+    route_id, direction, stop_id, stop_name, stop_lat, stop_lon,
+    alert_type, severity, headway_seconds, prev_trip, curr_trip, arrival_time
+  FROM (
+    SELECT
+      route_id, direction, stop_id, stop_name, stop_lat, stop_lon,
+      alert_type, severity, headway_seconds, prev_trip, curr_trip, arrival_time,
+      ROW_NUMBER() OVER (
+        PARTITION BY route_id, direction, stop_id, curr_trip, prev_trip
+        ORDER BY arrival_time ASC
+      ) AS rn
+    FROM `mta_headway_alerts`
+    WHERE alert_type IN ('BUNCHING', 'GAP')
+  )
+  WHERE rn = 1
+)
 SELECT
   a.route_id,
   a.direction,
@@ -53,12 +109,19 @@ SELECT
   a.prev_trip,
   a.curr_trip,
   a.arrival_time,
-  TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\*{0,2}Action:\*{0,2}\s*([^\n]+)', 1))          AS action,
+  CASE
+    WHEN a.alert_type = 'BUNCHING' AND a.headway_seconds < 90   THEN 'HOLD TRAIN'
+    WHEN a.alert_type = 'BUNCHING'                              THEN 'MONITOR'
+    WHEN a.alert_type = 'GAP'      AND a.headway_seconds > 1200 THEN 'GAP FILL'
+    WHEN a.alert_type = 'GAP'                                   THEN 'MONITOR'
+    ELSE 'MONITOR'
+  END AS action,
+  TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\*{0,2}Action:\*{0,2}\s*([^\n]+)', 1))          AS llm_action,
   TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\*{0,2}Dispatcher Note:\*{0,2}\s*([^\n]+)', 1)) AS dispatcher_note,
   TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\*{0,2}Rider Message:\*{0,2}\s*([^\n]+)', 1))   AS rider_message,
   TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\*{0,2}Reasoning:\*{0,2}\s*([\s\S]+?)$', 1))    AS reasoning,
   CAST(response AS STRING) AS raw_response
-FROM `mta_headway_alerts` AS a,
+FROM deduped_alerts AS a,
 LATERAL TABLE(AI_RUN_AGENT(
   `dispatcher_agent`,
   CONCAT(

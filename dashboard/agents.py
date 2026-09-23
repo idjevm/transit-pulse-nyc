@@ -28,6 +28,13 @@ log = logging.getLogger(__name__)
 MODEL = os.environ.get("DISPATCHER_MODEL", "claude-haiku-4-5-20251001")
 _MAX_LISTED = 40  # cap how many rows of each kind we feed the model
 
+# Gemini's reasoning models (2.5-pro/flash) spend output tokens on internal
+# thinking before writing a word, so a low cap yields empty/truncated text. Give
+# every Gemini call generous headroom regardless of the per-agent cap, and steer
+# a chunk of the budget away from thinking when the SDK supports it.
+GEMINI_MIN_OUTPUT_TOKENS = 8192
+GEMINI_THINKING_BUDGET = 2048
+
 
 def _gemini_client():
     """Lazily build a Google Gemini client. Returns None if unavailable."""
@@ -57,6 +64,62 @@ def _anthropic_client():
     except Exception as exc:
         log.warning("anthropic client unavailable: %s", exc)
         return None
+
+
+def _has_google_key() -> bool:
+    return bool(
+        os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLEAI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+    )
+
+
+def _gemini_model_id() -> str:
+    return os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-pro")
+
+
+def _claude_model_id() -> str:
+    return os.environ.get("DISPATCHER_MODEL", "claude-haiku-4-5-20251001")
+
+
+def _pretty_model(provider: str, model: str) -> str:
+    """A short, human label for the model tag in the UI (e.g. 'Gemini 2.5 Pro')."""
+    if not model:
+        return "not configured"
+    m = model.lower()
+    if provider == "google":
+        base = m.replace("models/", "").replace("gemini-", "").replace("-", " ").strip()
+        return "Gemini " + " ".join(w.capitalize() for w in base.split())
+    if provider == "anthropic":
+        for fam in ("opus", "sonnet", "haiku"):
+            if fam in m:
+                nums = [t for t in m.replace("claude-", "").split("-") if t.isdigit() and len(t) <= 2]
+                ver = ".".join(nums[:2])
+                return f"Claude {fam.capitalize()} {ver}".strip()
+        return "Claude"
+    return model
+
+
+def active_model() -> dict:
+    """Report the provider + model the interactive agents will actually use, by
+    the same precedence _ask() applies (Gemini if a Google key + SDK are present,
+    else Claude). Lets the UI label itself truthfully instead of hardcoding a
+    provider that may not be the one answering."""
+    provider, _client, model = _resolve_backend()
+    return {"provider": provider, "model": model, "label": _pretty_model(provider or "", model or "")}
+
+
+def _resolve_backend() -> tuple[str | None, object | None, str | None]:
+    """Pick the LLM backend: Gemini if a Google key and SDK are available, else
+    Claude. Returns (provider, client, model) or (None, None, None)."""
+    if _has_google_key():
+        g = _gemini_client()
+        if g is not None:
+            return "google", g, _gemini_model_id()
+    a = _anthropic_client()
+    if a is not None:
+        return "anthropic", a, _claude_model_id()
+    return None, None, None
 
 
 # --------------------------------------------------------------------------- #
@@ -118,49 +181,97 @@ def _summarize_state(snap: dict) -> str:
     return "\n".join(lines)
 
 
-def _ask(system: str, user: str, max_tokens: int = 1800) -> tuple[str | None, str | None]:
-    """Single-shot LLM call. Uses Gemini Pro if configured, falls back to Anthropic."""
-    g_client = _gemini_client()
-    if g_client is not None:
-        try:
-            from google.genai import types
-            gemini_model = os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-pro")
-            resp = g_client.models.generate_content(
-                model=gemini_model,
-                contents=user,
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    max_output_tokens=max_tokens,
-                ),
-            )
-            text = (resp.text or "").strip()
-            if not text:
-                return None, "model returned no text (possibly truncated or blocked)"
-            return text, None
-        except Exception as exc:
-            log.exception("gemini call failed")
-            return None, f"Gemini request failed: {exc}"
+def _finish_reason(resp) -> str:
+    try:
+        fr = resp.candidates[0].finish_reason
+        return getattr(fr, "name", None) or str(fr)
+    except Exception:  # noqa: BLE001
+        return ""
 
-    a_client = _anthropic_client()
-    if a_client is not None:
+
+def _extract_gemini_text(resp) -> str:
+    """resp.text is None when a reasoning model emits only thinking and no answer;
+    fall back to walking the candidate parts so a partial answer still shows."""
+    t = getattr(resp, "text", None)
+    if t:
+        return t.strip()
+    out = []
+    try:
+        for cand in resp.candidates or []:
+            for part in (cand.content.parts or []):
+                if getattr(part, "text", None):
+                    out.append(part.text)
+    except Exception:  # noqa: BLE001
+        pass
+    return "".join(out).strip()
+
+
+def _gemini_config(system: str, max_tokens: int):
+    """Build a GenerateContentConfig with a generous output cap and, when the
+    installed SDK supports it, a bounded thinking budget so tokens go to the
+    answer instead of being spent entirely on hidden reasoning."""
+    from google.genai import types
+    eff_tokens = max(max_tokens, GEMINI_MIN_OUTPUT_TOKENS)
+    kwargs = {"system_instruction": system, "max_output_tokens": eff_tokens}
+    if hasattr(types, "ThinkingConfig"):
         try:
-            claude_model = os.environ.get("DISPATCHER_MODEL", "claude-haiku-4-5-20251001")
-            msg = a_client.messages.create(
-                model=claude_model,
+            return types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=GEMINI_THINKING_BUDGET),
+                **kwargs,
+            )
+        except (TypeError, ValueError):
+            pass  # older SDK / model without a thinking budget — fall through
+    return types.GenerateContentConfig(**kwargs)
+
+
+def _ask(system: str, user: str, max_tokens: int = 1800) -> tuple[str | None, str | None, str | None]:
+    """Single-shot LLM call. Uses Gemini if configured, else Anthropic. Returns
+    (text, error, model_label) — model_label names whoever actually answered so
+    the UI can label itself truthfully."""
+    provider, client, model = _resolve_backend()
+    label = _pretty_model(provider or "", model or "")
+
+    if provider == "google":
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=user,
+                config=_gemini_config(system, max_tokens),
+            )
+            text = _extract_gemini_text(resp)
+            if not text:
+                reason = _finish_reason(resp)
+                if reason == "MAX_TOKENS":
+                    return None, (
+                        "The model used its entire output budget on reasoning before answering. "
+                        "Try a lighter model (set GEMINI_MODEL_ID=gemini-2.0-flash) or ask a shorter question."
+                    ), label
+                return None, f"Model returned no text (finish_reason={reason or 'unknown'}).", label
+            return text, None, label
+        except Exception as exc:  # noqa: BLE001
+            log.exception("gemini call failed")
+            return None, f"Gemini request failed: {exc}", label
+
+    if provider == "anthropic":
+        try:
+            msg = client.messages.create(
+                model=model,
                 max_tokens=max_tokens,
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-            return text.strip(), None
-        except Exception as exc:
+            text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+            if not text:
+                return None, "Model returned no text.", label
+            return text, None, label
+        except Exception as exc:  # noqa: BLE001
             log.exception("claude call failed")
-            return None, f"Claude request failed: {exc}"
+            return None, f"Claude request failed: {exc}", label
 
     return None, (
-        "AI model is not configured. Set GEMINI_API_KEY (or GOOGLEAI_API_KEY) in your environment / .env "
-        "to enable the interactive transit agents with Gemini Pro."
-    )
+        "AI model is not configured. Set GEMINI_API_KEY (or GOOGLEAI_API_KEY), or ANTHROPIC_API_KEY, "
+        "in your environment / .env to enable the interactive transit agents."
+    ), None
 
 
 # --------------------------------------------------------------------------- #
@@ -187,10 +298,10 @@ def rider_advisor(snap: dict, origin: str, destination: str, question: str = "")
     if question:
         parts.append(f"Rider asks: {question}")
     parts.append("\nLIVE SYSTEM STATE:\n" + ctx)
-    text, err = _ask(RIDER_SYSTEM, "\n".join(parts))
+    text, err, model = _ask(RIDER_SYSTEM, "\n".join(parts))
     if err:
-        return {"ok": False, "error": err}
-    return {"ok": True, "answer": text}
+        return {"ok": False, "error": err, "model": model}
+    return {"ok": True, "answer": text, "model": model}
 
 
 # --------------------------------------------------------------------------- #
@@ -217,10 +328,10 @@ def operator_insight(snap: dict, question: str = "") -> dict:
         "recommend the highest-impact operational actions."
     )
     user = f"Operator asks: {ask}\n\nLIVE SYSTEM STATE:\n{ctx}"
-    text, err = _ask(OPERATOR_SYSTEM, user, max_tokens=2200)
+    text, err, model = _ask(OPERATOR_SYSTEM, user, max_tokens=2200)
     if err:
-        return {"ok": False, "error": err}
-    return {"ok": True, "answer": text}
+        return {"ok": False, "error": err, "model": model}
+    return {"ok": True, "answer": text, "model": model}
 
 
 # --------------------------------------------------------------------------- #
@@ -250,15 +361,15 @@ def route_designer(snap: dict, origin: str, destination: str, constraints: str =
     if constraints:
         parts.append(f"Constraints/goals: {constraints}")
     parts.append("\nLIVE SYSTEM STATE (for demand/gap signals):\n" + ctx)
-    text, err = _ask(ROUTE_DESIGNER_SYSTEM, "\n".join(parts), max_tokens=4096)
+    text, err, model = _ask(ROUTE_DESIGNER_SYSTEM, "\n".join(parts), max_tokens=4096)
     if err:
-        return {"ok": False, "error": err}
+        return {"ok": False, "error": err, "model": model}
 
     proposal = _parse_route_json(text)
     if proposal is None:
-        return {"ok": False, "error": "Could not parse a route proposal.", "raw": text}
+        return {"ok": False, "error": "Could not parse a route proposal.", "raw": text, "model": model}
     proposal["geojson"] = _waypoints_to_geojson(proposal)
-    return {"ok": True, "proposal": proposal}
+    return {"ok": True, "proposal": proposal, "model": model}
 
 
 def _parse_route_json(text: str) -> dict | None:
