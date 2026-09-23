@@ -15,14 +15,50 @@ from collections import deque
 
 TRAIN_TTL_SEC = 180          # drop a train not seen in this long
 ARRIVAL_TTL_SEC = 120        # drop a prediction not refreshed in this long
+FORECAST_TTL_SEC = 150       # drop a headway forecast not refreshed in this long
+SIM_TTL_SEC = 180            # judge-triggered simulated items auto-expire after this
 MAX_ALERTS = 60
 MAX_RECS = 60
 MAX_TRAINS_OUT = 1500       # subway (~700) + a healthy slice of the ~2.7k buses
 MAX_ARRIVALS_OUT = 40
+MAX_FORECASTS_OUT = 40
 
 
 def _now() -> float:
     return time.time()
+
+
+# Judge-triggered demo disruptions. Each injects a clearly SIMULATED alert +
+# dispatcher recommendation + predictive forecast at a real NYC stop (with real
+# coordinates so the map lights up), letting a presenter trigger the full pipeline
+# view on demand instead of waiting for live conditions to produce one. These are
+# labeled simulated=True end to end and never mix into the real Kafka-fed records.
+_SIM_SCENARIOS = {
+    "bunching": {
+        "label": "N/Q/R bunching at Times Sq-42 St",
+        "route_id": "N", "direction": "S", "stop_id": "R16",
+        "stop_name": "Times Sq-42 St", "stop_lat": 40.7557, "stop_lon": -73.9870,
+        "alert_type": "BUNCHING", "severity": "high",
+        "headway_seconds": 72, "predicted_headway": 55,
+        "action": "HOLD TRAIN",
+        "dispatcher_note": "Two southbound N trains are 72s apart and closing; hold the "
+                           "trailing train ~90s at 49 St to restore spacing.",
+        "rider_message": "Heads up: N/Q/R trains are bunching at Times Sq. The next one is "
+                         "crowded and close behind another; a short wait gets you a roomier ride.",
+    },
+    "gap": {
+        "label": "A train service gap at 125 St",
+        "route_id": "A", "direction": "N", "stop_id": "A15",
+        "stop_name": "125 St", "stop_lat": 40.8110, "stop_lon": -73.9526,
+        "alert_type": "GAP", "severity": "high",
+        "headway_seconds": 1320, "predicted_headway": 1500,
+        "action": "GAP FILL",
+        "dispatcher_note": "22-minute gap opening northbound on the A at 125 St; put the "
+                           "next available train in service or short-turn to fill it.",
+        "rider_message": "The next uptown A is running about 22 minutes out. If you can, the "
+                         "C or the 2/3 nearby may get you moving sooner.",
+    },
+}
 
 
 class DashboardState:
@@ -30,8 +66,10 @@ class DashboardState:
         self._lock = threading.Lock()
         self._trains: dict[str, dict] = {}                 # trip_id -> record
         self._arrivals: dict[tuple[str, str], dict] = {}   # (trip_id, stop_id) -> record
+        self._forecasts: dict[tuple[str, str, str], dict] = {}  # (route,dir,stop) -> record
         self._alerts: deque[dict] = deque(maxlen=MAX_ALERTS)
         self._recs: deque[dict] = deque(maxlen=MAX_RECS)
+        self._sim: dict[str, list] = {"alerts": [], "recs": [], "forecasts": []}
         self._connection_error: str | None = None
         self._last_record_ts: float = 0.0
 
@@ -126,6 +164,77 @@ class DashboardState:
             })
             self._last_record_ts = _now()
 
+    def update_forecast(self, f: dict) -> None:
+        """A predictive headway forecast (flink/08). Keyed by (route, dir, stop) so
+        the newest forecast for a stop replaces the prior one. Only actionable
+        predictions are kept; STABLE rows carry no signal to surface."""
+        route_id = f.get("route_id")
+        stop_id = f.get("stop_id")
+        forecast_type = f.get("forecast_type", "")
+        if not route_id or not stop_id:
+            return
+        if forecast_type not in ("PREDICTED_BUNCHING", "PREDICTED_GAP"):
+            return
+        with self._lock:
+            self._forecasts[(route_id, f.get("direction", ""), stop_id)] = {
+                "route_id": route_id,
+                "direction": f.get("direction", ""),
+                "stop_id": stop_id,
+                "stop_name": f.get("stop_name", ""),
+                "lat": f.get("stop_lat", 0.0),
+                "lon": f.get("stop_lon", 0.0),
+                "curr_trip": f.get("curr_trip", ""),
+                "forecast_type": forecast_type,
+                "headway_seconds": int(f.get("headway_seconds") or 0),
+                "predicted_headway": int(f.get("predicted_headway") or 0),
+                "_seen": _now(),
+            }
+            self._last_record_ts = _now()
+
+    # ---- judge-triggered simulation (demo only) ----
+    def inject_simulation(self, scenario: str) -> dict:
+        """Inject a clearly-labeled SIMULATED disruption (alert + recommendation +
+        forecast) so a presenter can light up the full pipeline on demand. Items
+        auto-expire after SIM_TTL_SEC and never touch the live Kafka-fed records."""
+        scen = (scenario or "bunching").strip().lower()
+        spec = _SIM_SCENARIOS.get(scen, _SIM_SCENARIOS["bunching"])
+        now = _now()
+        ts = int(now * 1000)
+        curr_trip = f"SIM-{scen}-{ts}"
+        alert = {
+            "route_id": spec["route_id"], "direction": spec["direction"],
+            "stop_id": spec["stop_id"], "stop_name": spec["stop_name"],
+            "lat": spec["stop_lat"], "lon": spec["stop_lon"],
+            "alert_type": spec["alert_type"], "severity": spec["severity"],
+            "headway_seconds": spec["headway_seconds"],
+            "prev_trip": f"{curr_trip}-prev", "curr_trip": curr_trip,
+            "simulated": True, "ts": ts, "_seen": now,
+        }
+        rec = {
+            "route_id": spec["route_id"], "direction": spec["direction"],
+            "stop_id": spec["stop_id"], "stop_name": spec["stop_name"],
+            "alert_type": spec["alert_type"], "action": spec["action"],
+            "dispatcher_note": spec["dispatcher_note"], "rider_message": spec["rider_message"],
+            "simulated": True, "ts": ts, "_seen": now,
+        }
+        forecast = {
+            "route_id": spec["route_id"], "direction": spec["direction"],
+            "stop_id": spec["stop_id"], "stop_name": spec["stop_name"],
+            "lat": spec["stop_lat"], "lon": spec["stop_lon"], "curr_trip": curr_trip,
+            "forecast_type": "PREDICTED_BUNCHING" if spec["alert_type"] == "BUNCHING" else "PREDICTED_GAP",
+            "headway_seconds": spec["headway_seconds"], "predicted_headway": spec["predicted_headway"],
+            "simulated": True, "_seen": now,
+        }
+        with self._lock:
+            self._sim["alerts"].append(alert)
+            self._sim["recs"].append(rec)
+            self._sim["forecasts"].append(forecast)
+        return {"scenario": scen, "label": spec["label"]}
+
+    def clear_simulation(self) -> None:
+        with self._lock:
+            self._sim = {"alerts": [], "recs": [], "forecasts": []}
+
     # ---- error tracking ----
     def record_error(self, code: str, detail: str) -> None:
         with self._lock:
@@ -165,8 +274,25 @@ class DashboardState:
                 del self._trains[k]
             for k in [k for k, a in self._arrivals.items() if now - a["_seen"] > ARRIVAL_TTL_SEC]:
                 del self._arrivals[k]
-            alerts = list(self._alerts)[::-1]
-            recs = list(self._recs)[::-1]
+            forecasts = [
+                {k: f[k] for k in ("route_id", "direction", "stop_id", "stop_name",
+                                   "lat", "lon", "curr_trip", "forecast_type",
+                                   "headway_seconds", "predicted_headway")}
+                for f in self._forecasts.values()
+                if now - f["_seen"] <= FORECAST_TTL_SEC
+            ]
+            for k in [k for k, f in self._forecasts.items() if now - f["_seen"] > FORECAST_TTL_SEC]:
+                del self._forecasts[k]
+
+            # Judge-triggered simulation: expire, then surface first (newest on top).
+            for kind in ("alerts", "recs", "forecasts"):
+                self._sim[kind] = [x for x in self._sim[kind] if now - x["_seen"] <= SIM_TTL_SEC]
+            sim = {kind: [{k: v for k, v in x.items() if k != "_seen"} for x in self._sim[kind]]
+                   for kind in ("alerts", "recs", "forecasts")}
+
+            alerts = sim["alerts"] + list(self._alerts)[::-1]
+            recs = sim["recs"] + list(self._recs)[::-1]
+            forecasts = sim["forecasts"] + forecasts
             n_subway = sum(1 for t in trains if t["mode"] == "subway")
             n_bus = sum(1 for t in trains if t["mode"] == "bus")
             routes_live = len({t["route_short"] for t in trains if t["route_short"]})
@@ -187,4 +313,5 @@ class DashboardState:
             "arrivals": arrivals[:MAX_ARRIVALS_OUT],
             "alerts": alerts,
             "recommendations": recs,
+            "forecasts": forecasts[:MAX_FORECASTS_OUT],
         }
