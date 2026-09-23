@@ -75,7 +75,7 @@ def _has_google_key() -> bool:
 
 
 def _gemini_model_id() -> str:
-    return os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-pro")
+    return os.environ.get("GEMINI_MODEL_ID", "gemini-pro-latest")
 
 
 def _claude_model_id() -> str:
