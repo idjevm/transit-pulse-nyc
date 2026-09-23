@@ -76,10 +76,20 @@
             <input type="checkbox" id="show-shapes" checked /> Route lines
           </label>
         </div>
+        <div class="ctl-group sim">
+          <label class="ctl-label" for="sim-scenario">Simulate</label>
+          <select id="sim-scenario" class="route-select" aria-label="Disruption scenario">
+            <option value="bunching">Bunching (Times Sq)</option>
+            <option value="gap">Service gap (125 St)</option>
+          </select>
+          <button id="sim-run" class="sim-btn" type="button">Inject</button>
+          <button id="sim-clear" class="sim-btn sim-clear" type="button">Clear</button>
+        </div>
         <div class="ctl-group legend">
           <span class="legend-item"><span class="legend-ico train-ico"></span>train</span>
           <span class="legend-item"><span class="legend-ico bus-ico">▲</span>bus</span>
           <span class="legend-item"><span class="legend-ico alert-ico">▲</span>alert</span>
+          <span class="legend-item"><span class="legend-ico forecast-ico">◵</span>forecast</span>
         </div>
       </div>
 
@@ -94,6 +104,14 @@
           <span class="tag" id="alerts-tag">0 active</span>
         </h2>
         <ul class="feed" id="alerts-feed"></ul>
+      </section>
+
+      <section class="card feed-card">
+        <h2 class="card-title">
+          PREDICTIVE HEADWAY (ML_FORECAST)
+          <span class="tag forecast-tag" id="forecast-tag">0 predicted</span>
+        </h2>
+        <ul class="feed forecasts" id="forecast-feed"></ul>
       </section>
 
       <section class="card feed-card">

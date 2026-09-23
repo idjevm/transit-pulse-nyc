@@ -134,6 +134,20 @@ def create_app() -> FastAPI:
         )
         return JSONResponse(result, headers=NO_CACHE)
 
+    @app.post("/api/simulate")
+    async def api_simulate(req: Request) -> JSONResponse:
+        # Judge-triggered demo disruption. Pure in-memory state mutation, so no
+        # worker thread or timeout is needed — it returns instantly and the next
+        # websocket snapshot carries the labeled SIMULATED records to the map.
+        body = await req.json()
+        result = state.inject_simulation((body.get("scenario") or "bunching"))
+        return JSONResponse({"ok": True, **result}, headers=NO_CACHE)
+
+    @app.post("/api/simulate/clear")
+    async def api_simulate_clear() -> JSONResponse:
+        state.clear_simulation()
+        return JSONResponse({"ok": True}, headers=NO_CACHE)
+
     @app.get("/healthz")
     async def healthz() -> dict:
         snap = state.snapshot()
