@@ -3,7 +3,7 @@
 // ---- config ----
 const MAP_CENTER = [40.73, -73.94]; // NYC, framed to show all boroughs
 const MAP_ZOOM = 11;
-const MAX_ARRIVALS = 25;
+const MAX_ARRIVALS = 8;
 const ARRIVING_THRESHOLD_S = 30;
 const SEC_PER_MIN = 60;
 
@@ -91,6 +91,7 @@ const proposedLayer = L.layerGroup().addTo(map); // route-designer proposal
 const vehicleMarkers = new Map();
 // route_short -> [polyline,...]
 const shapePolylines = {};
+let lastArrivals = [];
 
 // ---- icons ----
 function subwayIcon(routeShort) {
@@ -213,7 +214,8 @@ function render(s) {
   renderVehicles(s.trains || []);
   renderMapAlerts(s.alerts || [], s.trains || []);
   renderForecastMap(s.forecasts || [], s.trains || []);
-  renderArrivals(s.arrivals || []);
+  lastArrivals = s.arrivals || [];
+  renderArrivals(lastArrivals);
   renderAlerts(s.alerts || []);
   renderForecastFeed(s.forecasts || []);
   renderRecommendations(s.recommendations || []);
@@ -332,12 +334,80 @@ function renderForecastMap(forecasts, trains) {
   }
 }
 
+function selectArrivalsForBoard(arrivals, maxRows = MAX_ARRIVALS) {
+  let list = (arrivals || []).filter(a => typeof a.eta_seconds === "number" && a.eta_seconds >= 0);
+  if (filters.route) {
+    const rf = filters.route.toUpperCase();
+    list = list.filter(a => String(a.route_id).toUpperCase() === rf);
+  }
+  if (!list.length) return [];
+
+  // Progressive time brackets to guarantee a natural spread of upcoming arrivals
+  const brackets = [
+    [0, ARRIVING_THRESHOLD_S],   // arriving (<30s)
+    [ARRIVING_THRESHOLD_S, 120], // 30s - 2m
+    [120, 240],                  // 2m - 4m
+    [240, 420],                  // 4m - 7m
+    [420, 660],                  // 7m - 11m
+    [660, 960],                  // 11m - 16m
+    [960, 1300],                 // 16m - 22m
+    [1300, 1800],                // 22m - 30m
+  ];
+
+  const selected = [];
+  const seenKeys = new Set();
+  const isSingleRoute = Boolean(filters.route);
+
+  // Pass 1: Select at most 1 arrival per progressive time bracket across distinct routes/stops
+  for (const [bMin, bMax] of brackets) {
+    if (selected.length >= maxRows) break;
+    const candidates = list
+      .filter(a => a.eta_seconds >= bMin && a.eta_seconds < bMax)
+      .sort((a, b) => a.eta_seconds - b.eta_seconds);
+
+    for (const cand of candidates) {
+      const key = isSingleRoute ? (cand.stop_name || cand.stop_id) : (cand.route_id || "").toUpperCase();
+      if (!key || seenKeys.has(key)) continue;
+      selected.push(cand);
+      seenKeys.add(key);
+      break;
+    }
+  }
+
+  // Pass 2: Fill remaining open slots from upcoming arrivals (>= 30s)
+  if (selected.length < maxRows) {
+    const remainingUpcoming = list
+      .filter(a => a.eta_seconds >= ARRIVING_THRESHOLD_S && !selected.includes(a))
+      .sort((a, b) => a.eta_seconds - b.eta_seconds);
+
+    for (const cand of remainingUpcoming) {
+      if (selected.length >= maxRows) break;
+      const key = isSingleRoute ? (cand.stop_name || cand.stop_id) : (cand.route_id || "").toUpperCase();
+      if (key && seenKeys.has(key)) continue;
+      selected.push(cand);
+      if (key) seenKeys.add(key);
+    }
+  }
+
+  // Pass 3: Fallback fill for any remaining slots
+  if (selected.length < maxRows) {
+    const remainingAny = list
+      .filter(a => !selected.includes(a))
+      .sort((a, b) => a.eta_seconds - b.eta_seconds);
+
+    for (const cand of remainingAny) {
+      if (selected.length >= maxRows) break;
+      selected.push(cand);
+    }
+  }
+
+  selected.sort((a, b) => a.eta_seconds - b.eta_seconds);
+  return selected.slice(0, maxRows);
+}
+
 function renderArrivals(arrivals) {
   const body = document.getElementById("board-body");
-  const rows = arrivals
-    .filter(a => typeof a.eta_seconds === "number" && a.eta_seconds >= 0)
-    .sort((a, b) => a.eta_seconds - b.eta_seconds)
-    .slice(0, MAX_ARRIVALS);
+  const rows = selectArrivalsForBoard(arrivals, MAX_ARRIVALS);
   if (!rows.length) {
     body.innerHTML = `<tr class="empty-row"><td colspan="4">Waiting for data...</td></tr>`;
     return;
@@ -437,7 +507,8 @@ function formatEta(eta) {
   if (eta < ARRIVING_THRESHOLD_S) return `<span class="arriving">arriving</span>`;
   const m = Math.floor(eta / SEC_PER_MIN);
   const sec = Math.round(eta % SEC_PER_MIN);
-  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  const secPad = sec < 10 ? `0${sec}` : `${sec}`;
+  return m > 0 ? `${m}m ${secPad}s` : `${sec}s`;
 }
 function formatClock(ts) {
   if (!ts) return "";
@@ -474,6 +545,7 @@ function wireControls() {
       }
     }
     redrawShapes();
+    renderArrivals(lastArrivals);
   });
 
   document.getElementById("show-shapes").addEventListener("change", e => {

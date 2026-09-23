@@ -260,24 +260,25 @@ body {
 }
 
 /* ---- arrivals board ---- */
+.board-card { overflow: hidden; }
 .board { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .board th {
   text-align: left;
   color: var(--muted);
   font-size: 0.68rem;
   letter-spacing: 1px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border-bottom: 1px solid var(--line);
 }
 .board td {
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--line-soft);
-  font-size: 0.86rem;
+  font-size: 0.82rem;
 }
 .board .station { color: var(--text); }
 .board .eta-col { text-align: right; font-family: var(--mono); font-weight: 600; }
 .arriving { color: var(--green); font-weight: 700; }
-.empty-row td { color: var(--muted); text-align: center; padding: 22px; font-style: italic; }
+.empty-row td { color: var(--muted); text-align: center; padding: 18px; font-style: italic; }
 
 /* ---- feeds (alerts + recommendations) ---- */
 .feed-card { display: flex; flex-direction: column; min-height: 0; }

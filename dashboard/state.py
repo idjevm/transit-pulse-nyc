@@ -20,7 +20,7 @@ SIM_TTL_SEC = 180            # judge-triggered simulated items auto-expire after
 MAX_ALERTS = 60
 MAX_RECS = 60
 MAX_TRAINS_OUT = 1500       # subway (~700) + a healthy slice of the ~2.7k buses
-MAX_ARRIVALS_OUT = 40
+MAX_ARRIVALS_OUT = 120
 MAX_FORECASTS_OUT = 40
 
 
@@ -273,8 +273,18 @@ class DashboardState:
                     "stop_id": a["stop_id"], "stop_name": a["stop_name"],
                     "trip_id": a["trip_id"], "eta_seconds": eta,
                 })
-            arrivals.sort(key=lambda x: x["eta_seconds"])
-            arrivals = arrivals[:MAX_ARRIVALS_OUT]
+            # Group by route so the board has upcoming arrivals across multiple lines and time horizons
+            by_route: dict[str, list[dict]] = {}
+            for item in arrivals:
+                by_route.setdefault(item.get("route_id") or "", []).append(item)
+
+            selected_arrivals: list[dict] = []
+            for r_items in by_route.values():
+                r_items.sort(key=lambda x: x["eta_seconds"])
+                selected_arrivals.extend(r_items[:6])
+
+            selected_arrivals.sort(key=lambda x: x["eta_seconds"])
+            arrivals = selected_arrivals[:MAX_ARRIVALS_OUT]
             # Evict expired entries from the backing dicts so they don't grow
             # unbounded over a service day; TTL is by last-seen, independent of
             # the eta-window filtering applied to the output above.
