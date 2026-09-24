@@ -108,6 +108,39 @@ Same version caveat as the source: if `confluent connect cluster create` rejects
 field, build it once in **Console → Connectors → HTTP Sink**, *Download connector
 config*, and drop your values into the template.
 
+## Managed HTTP Source Connector (NYC Weather Events)
+
+`provision.sh` can also provision an **HTTP Source Connector** that continuously polls
+live NYC weather observations (temperature, precipitation, weather conditions, wind speed)
+from Open-Meteo into `nyc_weather_events` (governed with JSON Schema in Schema Registry).
+The dashboard topbar displays live weather, and the interactive AI copilots use current
+weather to diagnose weather-related track or headway disruptions.
+
+Enable it in `deploy.env`:
+
+```bash
+export ENABLE_WEATHER_SOURCE="true"
+export WEATHER_HTTP_URL="https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&timezone=America%2FNew_York"
+```
+
+Config template: [`connectors/http_source_weather.json`](connectors/http_source_weather.json).
+
+## Managed Datagen Source Connector (Passenger Turnstile Surges)
+
+To simulate dynamic station crowding without physical sensors, `provision.sh` provisions a
+Confluent **DatagenSource Connector** that generates real-time synthetic station turnstile
+spikes and passenger crowd events into `mta_passenger_surges` using Avro serialization with
+Schema Registry. The dashboard monitors active station surges and alerts operators to crowd
+bottlenecks.
+
+Enable it in `deploy.env`:
+
+```bash
+export ENABLE_PASSENGER_DATAGEN="true"
+```
+
+Config template: [`connectors/datagen_passenger_surges.json`](connectors/datagen_passenger_surges.json).
+
 ## Choosing the in-Flink LLM (Bedrock or Gemini)
 
 The dispatcher agent's LLM is set by `LLM_PROVIDER` in `deploy.env`:

@@ -29,11 +29,11 @@ The dashboard is a high-performance live map: real subway route lines (from stat
 | Component | Technology | Description |
 |---|---|---|
 | **Live GTFS-RT Producer** | Python, Protocol Buffers, Avro | High-throughput streaming ingest of all NYC subway lines and ~2,700 MTA buses into Kafka topics with Schema Registry Avro serialization. |
-| **Managed Connector Ingest** | Confluent HTTP Source Connector | Managed cloud source connector polling real-time MTA service alerts directly from NY Open Data (Socrata) into `mta_service_alerts` with Schema Registry JSON Schema governance. |
+| **Managed Connectors (Ingest & Outgest)** | Confluent HTTP Source, HTTP Sink & Datagen | Four fully-managed Confluent Cloud connectors: `mta-service-alerts-http-source` (NY Open Data alerts), `mta-weather-http-source` (Open-Meteo live NYC weather), `mta-passenger-surges-datagen` (turnstile crowd surges), and `mta-dispatcher-decisions-http-sink` (live webhook notifications). |
 | **Stream Processing Engine** | Confluent Cloud Flink SQL | Continuous stream deduplication, ETA computation, Complex Event Processing (CEP `MATCH_RECOGNIZE`) for headway tracking, and predictive bunching/gap forecasting. |
 | **In-Stream AI Agent** | Confluent Flink `AI_RUN_AGENT` | Model inference running directly inside Flink continuous queries: evaluates headway alerts and produces concrete dispatcher interventions and rider announcements into `mta_dispatcher_decisions`. |
-| **Interactive AI Copilots** | Google Gemini (optional) or Anthropic Claude | Three on-demand reasoning agents (Rider Advisor, Fleet Risk Predictor, Route Designer) grounded in live fleet snapshots; they use Gemini (`google-genai`) when a Google API key is set and fall back to Anthropic Claude otherwise. |
-| **Operations Dashboard** | FastAPI, WebSockets, Leaflet.js | Sub-second full-fleet visualization of subway trains, buses, stations, pulse alerts, and interactive AI panels. |
+| **Interactive AI Copilots** | Google Gemini (optional) or Anthropic Claude | Three on-demand reasoning agents (Rider Advisor, Fleet Risk Predictor, Route Designer) grounded in live fleet, weather, and crowd surge state; they use Gemini (`google-genai`) when a Google API key is set and fall back to Anthropic Claude otherwise. |
+| **Operations Dashboard** | FastAPI, WebSockets, Leaflet.js | Sub-second full-fleet visualization of subway trains, buses, stations, pulse alerts, live weather pill, crowd surge counter, arrival boards, and interactive AI panels. |
 
 > **Optional integration (not a shipped component):** a best-effort **Real-Time Context Engine (RTCE / MCP)** hook can expose live transit topics to AI coding tools (Claude Code, Cursor, Windsurf, Codex). It is an external, Confluent-managed integration wired up separately via `scripts/setup_rtce.py`, and its endpoint URL is unverified.
 
@@ -43,14 +43,16 @@ The dashboard is a high-performance live map: real subway route lines (from stat
 
 ```
 MTA GTFS-RT ──producers/mta_producer.py──► Kafka (Avro + Schema Registry)
-  subway + bus                              mta_vehicle_positions   (train pings)
-                                            mta_trip_updates        (arrival predictions)
-                                            mta_bus_positions       (live bus GPS + heading)
-JSON alerts ──HTTP Source Connector───────► mta_service_alerts      (managed connector, JSON+SR)
+  subway + bus                              mta_vehicle_positions     (train pings)
+                                            mta_trip_updates          (arrival predictions)
+                                            mta_bus_positions         (live bus GPS + heading)
+Open Data   ──HTTP Source Connector───────► mta_service_alerts        (managed connector, JSON+SR)
+Open-Meteo  ──HTTP Source Connector───────► nyc_weather_events        (managed connector, JSON+SR)
+Datagen     ──Datagen Source Connector────► mta_passenger_surges      (managed connector, Avro+SR)
         │
         ▼  Confluent Cloud Flink SQL (flink/*.sql, run in order)
    01  CREATE TABLE (register schemas / back topics)
-   02  mta_arrival_estimates   live ETA per stop/route/direction        ──► rider board
+   02  mta_arrival_estimates   live ETA per stop/route/direction          ──► rider board
    03  mta_headway             MATCH_RECOGNIZE consecutive arrivals → headway_seconds
    04  mta_headway_alerts      BUNCHING / GAP  (threshold + optional ML_DETECT_ANOMALIES)
    05  CREATE MODEL            Google AI / Gemini or AWS Bedrock connection
@@ -58,10 +60,13 @@ JSON alerts ──HTTP Source Connector───────► mta_service_aler
    07  mta_bus_positions       live bus GPS source table
    08  mta_headway_forecast    CEP MATCH_RECOGNIZE → PREDICTED_BUNCHING / GAP
         │
+        ├─► HTTP Sink Connector ──────────► External Webhook (Webhook.site / Slack / Ops bridge)
+        │   (mta_dispatcher_decisions)
         ▼  dashboard/ (FastAPI + websocket + Leaflet)
    live map (route lines + train/bus icons + alert markers, mode/route filters),
-   next-arrivals board, bunching/gap alert feed, AI dispatcher panel,
-   + three interactive copilots (advisor / operator / route designer; Gemini when a Google key is set, else Anthropic Claude)
+   live weather badge & crowd surge indicators, next-arrivals board, bunching/gap alert feed,
+   AI dispatcher panel (with live webhook stream link),
+   + three interactive copilots grounded in fleet, weather, and station surge state
 ```
 
 ## Topics
@@ -77,16 +82,18 @@ JSON alerts ──HTTP Source Connector───────► mta_service_aler
 | `mta_headway_forecast` | Flink SQL | Predictive headway trends (CEP `MATCH_RECOGNIZE`) |
 | `mta_dispatcher_decisions` | Flink Streaming Agent | In-stream LLM dispatcher action + rider message |
 | `mta_service_alerts` | HTTP Source Connector | Real JSON service-alerts feed (managed connector, JSON Schema in SR) |
+| `nyc_weather_events` | HTTP Source Connector | Live NYC temperature, precipitation, wind, conditions (Open-Meteo, JSON Schema) |
+| `mta_passenger_surges` | Datagen Source Connector | Real-time synthetic station turnstile spikes & crowd surges (Avro + SR) |
 
 ## Prerequisites
 
 - Python 3.10+ and, for one-command provisioning, the `confluent` CLI (v4+) + `jq`
   (`brew install confluentinc/tap/cli jq`).
 - Confluent Cloud auth: just `confluent login` (browser/SSO) — the provisioner
-  reuses your session and sets up the cluster, Schema Registry, Flink pool, and
-  connections for you.
+  reuses your session and sets up the cluster, Schema Registry, Flink pool,
+  managed connectors, and connections for you.
 - An LLM API key:
-  - **Google AI / Gemini** (optional): an [AI Studio](https://aistudio.google.com/apikey) API key (`GEMINI_API_KEY` / `GOOGLEAI_API_KEY` / `GOOGLE_API_KEY`). When set, the interactive copilots use Gemini; without it they fall back to Anthropic Claude.
+  - **Google AI / Gemini** (optional): an [AI Studio](https://aistudio.google.com/apikey) API key (`GEMINI_API_KEY` / `GOOGLEAI_API_KEY` / `GOOGLE_API_KEY`). When set, the interactive copilots use Gemini (defaulting to `gemini-3.1-pro-preview` / `gemini-pro-latest`); without it they fall back to Anthropic Claude.
   - **AWS Bedrock** (optional): IAM credentials for Claude in `us-east-1` (backs the in-Flink dispatcher agent).
 
 ## Provision (one command)
@@ -136,7 +143,10 @@ mta-streaming-intelligence/
 │   ├── teardown.sh            # tears down connector/Flink/pool/topics; --all also deletes the env
 │   ├── deploy.env.example     # keys + region (copy to deploy.env)
 │   ├── connectors/            # managed connector config templates
-│   │   └── http_source_service_alerts.json
+│   │   ├── http_source_service_alerts.json      # NY Open Data alerts (HTTP Source)
+│   │   ├── http_source_weather.json             # Open-Meteo NYC weather (HTTP Source)
+│   │   ├── datagen_passenger_surges.json        # Turnstile passenger crowd surges (Datagen)
+│   │   └── http_sink_dispatcher_decisions.json  # Live webhook dispatcher alerts (HTTP Sink)
 │   └── README.md
 ├── flink/                     # Flink SQL, run in numeric order
 │   ├── 01_create_tables.sql
@@ -158,9 +168,13 @@ mta-streaming-intelligence/
 │   ├── app.py                 # entrypoint (uvicorn dashboard.app:app)
 │   ├── server.py              # FastAPI + websocket + /api/shapes
 │   ├── consumer.py            # Kafka -> DashboardState
-│   ├── state.py               # thread-safe snapshot
+│   ├── state.py               # thread-safe snapshot (trains, buses, weather, crowd surges)
 │   ├── agents.py              # interactive copilots (Gemini or Anthropic Claude)
 │   └── static/                # index.html, app.js, styles.css (Leaflet)
+├── tests/                     # unit & integration tests
+│   ├── test_connectors_config.py
+│   ├── test_weather_and_crowd_state.py
+│   └── test_agents_backend.py
 ├── scripts/
 │   ├── smoke_test.py          # decode the live feed, print stats
 │   ├── fetch_static_gtfs.py   # download stops.txt for map coordinates
@@ -175,6 +189,7 @@ mta-streaming-intelligence/
 Static GTFS `shapes.txt` supplies real NYC transit route geometry (drawn as colored polylines, served dynamically from `/api/shapes`). Live vehicles render dynamically on top:
 - **Subway Trains**: render as official MTA route bullets snapped to station coordinates with active trip IDs.
 - **City Buses**: ~2,700 buses render as heading-oriented vehicle markers using real-time GPS coordinates.
+- **Station Arrivals & Weather**: Station arrival countdown boards with live ETA countdowns, real-time NYC weather metrics badge, and crowd surge alerts.
 - **Interactive Controls**: Toggle between **Subway** and **Bus** modes, filter to individual lines/routes, and view pulsing markers for active bunching and gap alerts.
 
 ## Dual-Tier AI Architecture
@@ -185,12 +200,17 @@ The system splits AI responsibilities between continuous in-stream evaluation an
    - The dispatcher agent runs *inside* Apache Flink via `AI_RUN_AGENT`.
    - As headway alerts are detected, the model evaluates train spacing and outputs structured operational decisions (`HOLD TRAIN`, `GAP FILL`, `MONITOR`) and passenger announcements into `mta_dispatcher_decisions`.
    - Continuous CEP pattern matching (`08_headway_forecast.sql`) extrapolates arrival intervals to forecast bunching/gaps *before* they occur.
+   - **Live Webhook Integration**: Every in-stream dispatcher action in `mta_dispatcher_decisions` is piped directly to an external HTTP webhook (Slack, Webhook.site, or incident bridge) via the managed Confluent **HTTP Sink Connector**.
 
 2. **Interactive Fleet Copilots (`dashboard/agents.py`)**:
-   - Three on-demand copilots grounded in the real-time fleet snapshot. They use **Google Gemini** (default model `gemini-2.5-pro`, overridable via `GEMINI_MODEL_ID`, through `google-genai`) when a Google API key (`GEMINI_API_KEY` / `GOOGLEAI_API_KEY` / `GOOGLE_API_KEY`) is set, and fall back to **Anthropic Claude** otherwise:
+   - Three on-demand copilots grounded in the real-time fleet snapshot. They use **Google Gemini** (default model `gemini-3.1-pro-preview` / `gemini-pro-latest`, overridable via `GEMINI_MODEL_ID`, through `google-genai`) when a Google API key (`GEMINI_API_KEY` / `GOOGLEAI_API_KEY` / `GOOGLE_API_KEY`) is set, and fall back to **Anthropic Claude** otherwise:
      - **Rider Trip Advisor** (`POST /api/advisor`): Real-time corridor advice and crowd avoidance.
      - **Fleet Risk Predictor** (`POST /api/operator`): Fleet-wide operational risk diagnosis and bottleneck identification.
      - **Bus Route Designer** (`POST /api/route-designer`): Generates new or optimized bus routes with waypoints, stops, rationale, and GeoJSON lines to render directly on the live map.
+   - **Multi-Modal Context Grounding**: Prompts are dynamically synthesized from live transit metrics:
+     - Live headway bunching/gap alerts and predicted headway degradation.
+     - Real-time NYC weather observations (temperature, precipitation, wind speed) from the `nyc_weather_events` topic.
+     - Active passenger turnstile spikes and surging stations from the `mta_passenger_surges` topic.
 
 ## Data sources
 
