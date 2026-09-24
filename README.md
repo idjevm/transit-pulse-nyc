@@ -13,7 +13,7 @@ The dashboard is a high-performance live map: real subway route lines (from stat
 ## Screenshots & Live Views
 
 ### Confluent Cloud Stream Lineage
-<img width="1427" height="771" alt="image" src="https://github.com/user-attachments/assets/82b0b402-18e7-4a48-9e17-d9b6803e527b" />
+<img width="3360" height="1784" alt="image" src="https://github.com/user-attachments/assets/55125a1e-5961-4298-9725-1342e203be27" />
 
 *Real-time Stream Lineage in Confluent Cloud: Managed HTTP Source Connector (`mta-service-alerts-http-source`) & live GTFS-RT Kafka topics flowing through Apache Flink continuous queries into `mta_dispatcher_decisions`.*
 
