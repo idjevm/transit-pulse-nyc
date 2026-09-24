@@ -1,15 +1,17 @@
 # Transit Pulse NYC — Self-Service Walkthrough & Guide
 
-Modeled directly on the architecture of [`demo-confluent-intelligence-f1`](https://github.com/confluentinc/demo-confluent-intelligence-f1) for **Confluent AI Day NYC**. We swap Formula 1 tire telemetry for live NYC subway and bus streams.
+Modeled on the architecture of real-time streaming intelligence platforms for **Confluent AI Day NYC**. We combine live MTA telemetry, weather, and passenger demand with Flink SQL and in-stream AI.
 
 ```
-MTA GTFS-RT Feeds (Subway & Buses)
-       │
-       ▼ [producers/mta_producer.py]
-Confluent Kafka Topics (Avro + Schema Registry)
+MTA GTFS-RT Feeds (Subway & Buses) ──► Kafka Topics (Avro + Schema Registry)
   ├── mta_vehicle_positions (subway train pings)
   ├── mta_trip_updates      (arrival predictions)
   └── mta_bus_positions     (live bus GPS + heading)
+
+External Sources ──► Confluent Managed Connectors
+  ├── Open Data JSON Feed ──► [HttpSource]   ──► mta_service_alerts (JSON Schema)
+  ├── Open-Meteo NYC      ──► [HttpSource]   ──► nyc_weather_events (JSON Schema)
+  └── Synthetic Crowds    ──► [DatagenSource]──► mta_passenger_surges (Avro + SR)
        │
        ▼ [Confluent Cloud Flink SQL (flink/*.sql)]
   01_create_tables.sql       -> Back topics with Avro schemas
@@ -18,14 +20,20 @@ Confluent Kafka Topics (Avro + Schema Registry)
   03_headway.sql             -> MATCH_RECOGNIZE consecutive arrivals -> headway_seconds
   04_headway_alerts.sql      -> BUNCHING / GAP alerts (thresholds & ML_DETECT_ANOMALIES)
   08_headway_forecast.sql    -> Predictive CEP forecasting (PREDICTED_BUNCHING / GAP)
-  05_create_model.sql        -> Registers Bedrock / Claude Sonnet connection
+  05_create_model.sql        -> Registers Bedrock or Google AI (Gemini) connection
   06_dispatcher_agent.sql    -> CREATE AGENT + AI_RUN_AGENT (in-stream LLM copilot)
        │
+       ├─► [HttpSink Connector] ──► External Webhook (Webhook.site / Slack / Ops bridge)
+       │   (mta_dispatcher_decisions)
        ▼
 Local Pit Wall / Live Dashboard (FastAPI + WebSocket @ 4Hz + Leaflet)
-  ├── Live Map: http://localhost:8000
+  ├── Live Map: http://localhost:8000 (subways + ~2,700 GPS buses)
+  ├── Live Weather & Station Crowd Surges Indicators
+  ├── Next Arrivals Board: Live countdown clocks per station
+  ├── AI Dispatcher Card with Live Webhook Stream link
   ├── Real-Time Context Engine (RTCE): MCP server for coding agents
-  └── Interactive Claude Agents: Rider Advisor, Operator Risk, Route Designer
+  └── Interactive AI Copilots: Rider Advisor, Operator Risk, Route Designer
+      (Gemini 3.1 / Pro with Claude fallback)
 ```
 
 ---
@@ -37,18 +45,21 @@ Once services are launched, there are two primary destinations:
 ### A. The Live Map Dashboard (Local)
 👉 **[http://localhost:8000](http://localhost:8000)** (or `http://127.0.0.1:8000`)
 - **Live Fleet View**: Real MTA subway trains moving on official route lines + ~2,700 live city buses with heading direction arrows.
-- **Arrivals Board**: Real-time countdown clocks per station.
+- **Live Weather Badge**: Real-time NYC temperature, precipitation, and conditions in topbar (`⛅ 15°C · Overcast`).
+- **Crowd Surges Counter**: Active station turnstile crowd alerts.
+- **Arrivals Board**: Real-time countdown clocks across stations and routes.
 - **Alert Feed**: Real-time bunching (`<150s`) and headway gap (`>900s`) pulsing alert markers.
-- **In-Stream AI Copilot**: Streaming recommendations generated directly by Flink and Bedrock (`HOLD TRAIN`, `GAP FILL`, `SKIP-STOP`, `MONITOR`).
-- **Interactive AI Agents**: Rider advisor, fleet risk predictor, and new-route designer grounded in the live system state.
+- **In-Stream AI Copilot**: Streaming recommendations generated directly by Flink and Bedrock/Gemini (`HOLD TRAIN`, `GAP FILL`, `SKIP-STOP`, `MONITOR`).
+- **Live Webhook Stream Link**: Click `webhook live ↗` on the Dispatcher card to watch decisions hit external webhooks in real time.
+- **Interactive AI Copilots**: Rider advisor, fleet risk predictor, and new-route designer grounded in fleet headways, weather, and crowd surges.
 - **Health check**: [http://localhost:8000/healthz](http://localhost:8000/healthz)
 
 ### B. Confluent Cloud Console (Cloud)
 👉 **[https://confluent.cloud](https://confluent.cloud)**
-- **Stream Lineage**: Open your environment (`default` / `<your-env-id>` — the `ENV_ID` that `provision.sh` prints) $\to$ **Stream Lineage**. You will see the end-to-end graph connecting your producer topics, continuous Flink queries, and the in-stream LLM agent.
-- **Flink SQL Workspace**: Open **Flink** $\to$ **SQL Workspaces**. Select catalog `default` and database `<your-cluster-id>` (the `CLUSTER_ID` that `provision.sh` prints) to inspect or run live queries.
-- **Topics**: Open your cluster (`<your-cluster-id>`) $\to$ **Topics** to view messages flowing into `mta_vehicle_positions`, `mta_headway_alerts`, and `mta_dispatcher_decisions`.
-- **Real-Time Context Engine**: Topics $\to$ `mta_vehicle_positions` / `mta_headway_alerts` $\to$ view RTCE MCP enablement.
+- **Stream Lineage**: Open your environment $\to$ **Stream Lineage**. You will see the end-to-end graph connecting your managed connectors (Sources and Sink), producer topics, continuous Flink queries, and the in-stream LLM agent.
+- **Connectors**: Open your cluster $\to$ **Connectors** to inspect the 4 running managed connectors (`mta-service-alerts-http-source`, `mta-weather-http-source`, `mta-passenger-surges-datagen`, and `mta-dispatcher-decisions-http-sink`).
+- **Flink SQL Workspace**: Open **Flink** $\to$ **SQL Workspaces**. Select catalog `default` and database `<your-cluster-id>` to inspect or run live queries.
+- **Topics & Schema Registry**: View messages flowing into topics governed by Avro and JSON Schema in Schema Registry. Full schema listing is available in [`docs/SCHEMAS.md`](SCHEMAS.md).
 
 ---
 
@@ -65,22 +76,23 @@ Once services are launched, there are two primary destinations:
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
-3. **AWS Bedrock Credentials**:
-   An IAM user with `bedrock:InvokeModel` permissions on `us.anthropic.claude-sonnet-4-5-20250929-v1:0` in `us-east-1` (same as the F1 demo).
+3. **LLM Credentials** (one of):
+   - **Google AI / Gemini** (optional): `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey) for interactive copilots and/or in-Flink model (`gemini-3.1-pro-preview` / `gemini-pro-latest`).
+   - **AWS Bedrock** (optional): An IAM user with `bedrock:InvokeModel` on `us.anthropic.claude-sonnet-4-5-20250929-v1:0` in `us-east-1`.
 
 ---
 
 ## 3. Provisioning Confluent Cloud
 
-[`deploy/provision.sh`](file:///Users/idjevm/projects/transit-pulse-nyc/deploy/provision.sh) automatically sets up the environment, compute pool, Bedrock LLM connection, and submits every Flink SQL statement in order:
+[`deploy/provision.sh`](file:///Users/idjevm/projects/transit-pulse-nyc/deploy/provision.sh) automatically sets up the environment, compute pool, LLM connection, managed connectors, and submits every Flink SQL statement in order:
 
 ```bash
 # 1. Verify live MTA GTFS-RT feed decoding (no Kafka needed)
 python scripts/smoke_test.py
 
 # 2. Configure credentials in deploy/deploy.env
-# CLOUD="aws", REGION="us-east-1", LLM_PROVIDER="bedrock"
-# Fill in AWS_BEDROCK_ACCESS_KEY and AWS_BEDROCK_SECRET_KEY
+# CLOUD="aws", REGION="us-east-1", LLM_PROVIDER="bedrock" (or "googleai")
+# Fill in keys + region in deploy/deploy.env
 
 # 3. Run the one-command provisioner
 ./deploy/provision.sh
@@ -152,6 +164,16 @@ SELECT
   arrival_time
 FROM `mta_headway_forecast`
 WHERE forecast_type <> 'STABLE';
+```
+
+### D. Inspect Managed Connector Topics (Weather & Passenger Surges)
+In your terminal or Confluent Console **Topics** tab:
+```bash
+# Ingested by HttpSource from Open-Meteo
+confluent kafka topic consume nyc_weather_events --cluster "$CLUSTER_ID" --value-format json
+
+# Generated by DatagenSource for station turnstiles
+confluent kafka topic consume mta_passenger_surges --cluster "$CLUSTER_ID" --value-format avro
 ```
 
 ---
