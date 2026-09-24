@@ -11,7 +11,10 @@ subjects = [
     ('mta_arrival_estimates-value', 'Live Station Arrival Estimates (Computed by Flink SQL continuous queries)'),
     ('mta_vehicle_positions-value', 'Subway Train Vehicle Positions (Ingested from GTFS-RT protobuf)'),
     ('mta_trip_updates-value', 'Subway Train Trip Updates (Ingested from GTFS-RT protobuf)'),
-    ('mta_bus_positions-value', 'MTA Bus Vehicle Positions (~2,700 live buses with GPS & heading)')
+    ('mta_bus_positions-value', 'MTA Bus Vehicle Positions (~2,700 live buses with GPS & heading)'),
+    ('mta_bus_corridor_speed-value', 'Bus Corridor Congestion & Velocity Analytics (Computed by Flink 10_bus_congestion.sql window aggregation)'),
+    ('mta_weather_impact_alerts-value', 'Weather-Impact Enriched Headway Alerts (Computed by Flink 11_weather_impact.sql joining alerts with weather)'),
+    ('mta_station_bottlenecks-value', 'Multi-Modal Station Bottlenecks (Computed by Flink 12_station_bottlenecks.sql joining surges with headway alerts)')
 ]
 
 doc = """# Transit Pulse NYC — Confluent Schema Registry Schemas

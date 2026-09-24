@@ -67,6 +67,9 @@ Datagen     ──Datagen Source Connector────► mta_passenger_surges  
    06  dispatcher_agent        CREATE AGENT + AI_RUN_AGENT  ← the LLM runs IN Flink!
    07  mta_bus_positions       live bus GPS source table
    08  mta_headway_forecast    CEP MATCH_RECOGNIZE → PREDICTED_BUNCHING / GAP
+   10  mta_bus_corridor_speed  1-min tumbling window bus congestion index
+   11  mta_weather_impact      enriched headway alerts joined with live weather telemetry
+   12  mta_station_bottlenecks correlated platform crowd surges + headway gaps
         │
         ├─► HTTP Sink Connector ──────────► External Webhook (Webhook.site / Slack / Ops bridge)
         │   (mta_dispatcher_decisions)
@@ -92,6 +95,9 @@ Datagen     ──Datagen Source Connector────► mta_passenger_surges  
 | `mta_service_alerts` | HTTP Source Connector | Real JSON service-alerts feed (managed connector, JSON Schema in SR) |
 | `nyc_weather_events` | HTTP Source Connector | Live NYC temperature, precipitation, wind, conditions (Open-Meteo, JSON Schema) |
 | `mta_passenger_surges` | Datagen Source Connector | Real-time synthetic station turnstile spikes & crowd surges (Avro + SR) |
+| `mta_bus_corridor_speed` | Flink SQL | 1-minute tumbling window bus corridor congestion levels |
+| `mta_weather_impact_alerts` | Flink SQL | Headway alerts enriched with live NYC weather observations |
+| `mta_station_bottlenecks` | Flink SQL | Correlated passenger turnstile surges + headway service gaps |
 
 ## Prerequisites
 
@@ -165,7 +171,10 @@ mta-streaming-intelligence/
 │   ├── 06_dispatcher_agent.sql
 │   ├── 07_bus_positions.sql   # live bus GPS source table
 │   ├── 08_headway_forecast.sql # predictive bunching/gap (operator prediction)
-│   └── 09_service_alerts.sql  # source table over the HTTP Source Connector topic
+│   ├── 09_service_alerts.sql  # source table over the HTTP Source Connector topic
+│   ├── 10_bus_congestion.sql  # bus corridor congestion & fleet velocity aggregation
+│   ├── 11_weather_impact.sql  # headway alerts joined with Open-Meteo weather
+│   └── 12_station_bottlenecks.sql # passenger turnstile crowd surges + headway gaps
 ├── producers/
 │   ├── config.py              # env-driven settings (mirrors datagen/config.py)
 │   ├── feeds.py               # MTA subway GTFS-RT feed URLs

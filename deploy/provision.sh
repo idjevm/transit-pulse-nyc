@@ -258,6 +258,9 @@ submit_file "$FLINK_DIR/08_headway_forecast.sql"
 submit_stmt "CREATE MODEL \`llm_dispatcher_model\` INPUT (\`prompt\` STRING) OUTPUT (\`response\` STRING) WITH ($MODEL_WITH)" "create_model"
 
 submit_file "$FLINK_DIR/06_dispatcher_agent.sql"
+submit_file "$FLINK_DIR/10_bus_congestion.sql"
+submit_file "$FLINK_DIR/11_weather_impact.sql"
+submit_file "$FLINK_DIR/12_station_bottlenecks.sql"
 
 # ---- Optional: managed HTTP Source Connector (real JSON feed) ----------------
 # Demonstrates the Confluent managed-connector ingest path alongside the live

@@ -14,6 +14,9 @@ This document contains all active schemas registered in **Confluent Cloud Schema
 | `mta_vehicle_positions-value` | `100001` | `AVRO` | Subway Train Vehicle Positions (Ingested from GTFS-RT protobuf) |
 | `mta_trip_updates-value` | `100002` | `AVRO` | Subway Train Trip Updates (Ingested from GTFS-RT protobuf) |
 | `mta_bus_positions-value` | `100003` | `AVRO` | MTA Bus Vehicle Positions (~2,700 live buses with GPS & heading) |
+| `mta_bus_corridor_speed-value` | `100015` | `AVRO` | Bus Corridor Congestion & Velocity Analytics (Computed by Flink 10_bus_congestion.sql window aggregation) |
+| `mta_weather_impact_alerts-value` | `100016` | `AVRO` | Weather-Impact Enriched Headway Alerts (Computed by Flink 11_weather_impact.sql joining alerts with weather) |
+| `mta_station_bottlenecks-value` | `100017` | `AVRO` | Multi-Modal Station Bottlenecks (Computed by Flink 12_station_bottlenecks.sql joining surges with headway alerts) |
 
 ---
 
@@ -1100,6 +1103,312 @@ This document contains all active schemas registered in **Confluent Cloud Schema
                 }
             ],
             "doc": "Feed timestamp",
+            "default": null
+        }
+    ]
+}
+```
+
+---
+
+## mta_bus_corridor_speed-value
+
+- **Description**: Bus Corridor Congestion & Velocity Analytics (Computed by Flink 10_bus_congestion.sql window aggregation)
+- **Schema ID**: `100015`
+- **Format**: `AVRO`
+
+```json
+{
+    "type": "record",
+    "name": "mta_bus_corridor_speed_value",
+    "namespace": "org.apache.flink.avro.generated.record",
+    "fields": [
+        {
+            "name": "route_short",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "Rider-facing bus route, e.g. M15, B44, Q58",
+            "default": null
+        },
+        {
+            "name": "active_buses",
+            "type": [
+                "null",
+                "long"
+            ],
+            "doc": "Number of unique active buses in this window",
+            "default": null
+        },
+        {
+            "name": "in_transit_buses",
+            "type": [
+                "null",
+                "long"
+            ],
+            "doc": "Buses currently in transit",
+            "default": null
+        },
+        {
+            "name": "stopped_buses",
+            "type": [
+                "null",
+                "long"
+            ],
+            "doc": "Buses currently stopped at stations/signals",
+            "default": null
+        },
+        {
+            "name": "congestion_level",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "LIGHT | MODERATE | HEAVY corridor congestion",
+            "default": null
+        },
+        {
+            "name": "window_time",
+            "type": [
+                "null",
+                {
+                    "type": "long",
+                    "logicalType": "local-timestamp-millis"
+                }
+            ],
+            "doc": "Window watermark timestamp",
+            "default": null
+        }
+    ]
+}
+```
+
+---
+
+## mta_weather_impact_alerts-value
+
+- **Description**: Weather-Impact Enriched Headway Alerts (Computed by Flink 11_weather_impact.sql joining alerts with weather)
+- **Schema ID**: `100016`
+- **Format**: `AVRO`
+
+```json
+{
+    "type": "record",
+    "name": "mta_weather_impact_alerts_value",
+    "namespace": "org.apache.flink.avro.generated.record",
+    "fields": [
+        {
+            "name": "route_id",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "Subway line, e.g. 2, A, L",
+            "default": null
+        },
+        {
+            "name": "direction",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "N (uptown) or S (downtown)",
+            "default": null
+        },
+        {
+            "name": "stop_name",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "Station name",
+            "default": null
+        },
+        {
+            "name": "alert_type",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "BUNCHING or GAP",
+            "default": null
+        },
+        {
+            "name": "severity",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "LOW, MEDIUM, HIGH",
+            "default": null
+        },
+        {
+            "name": "headway_seconds",
+            "type": [
+                "null",
+                "long"
+            ],
+            "doc": "Observed headway in seconds",
+            "default": null
+        },
+        {
+            "name": "temperature_c",
+            "type": [
+                "null",
+                "double"
+            ],
+            "doc": "Current NYC temperature (Celsius)",
+            "default": null
+        },
+        {
+            "name": "precipitation_mm",
+            "type": [
+                "null",
+                "double"
+            ],
+            "doc": "Current NYC precipitation (mm)",
+            "default": null
+        },
+        {
+            "name": "wind_speed_kmh",
+            "type": [
+                "null",
+                "double"
+            ],
+            "doc": "Current NYC wind speed (km/h)",
+            "default": null
+        },
+        {
+            "name": "weather_condition",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "CLEAR | OVERCAST | DRIZZLE | RAIN",
+            "default": null
+        },
+        {
+            "name": "weather_risk_level",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "NORMAL_TRACK_CONDITIONS | MODERATE_WEATHER_RISK | HIGH_WEATHER_DISRUPTION",
+            "default": null
+        },
+        {
+            "name": "arrival_time",
+            "type": [
+                "null",
+                {
+                    "type": "long",
+                    "logicalType": "local-timestamp-millis"
+                }
+            ],
+            "doc": "Alert event time",
+            "default": null
+        }
+    ]
+}
+```
+
+---
+
+## mta_station_bottlenecks-value
+
+- **Description**: Multi-Modal Station Bottlenecks (Computed by Flink 12_station_bottlenecks.sql joining surges with headway alerts)
+- **Schema ID**: `100017`
+- **Format**: `AVRO`
+
+```json
+{
+    "type": "record",
+    "name": "mta_station_bottlenecks_value",
+    "namespace": "org.apache.flink.avro.generated.record",
+    "fields": [
+        {
+            "name": "station_name",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "Station experiencing surge",
+            "default": null
+        },
+        {
+            "name": "subway_line",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "Subway route id, e.g. 1, 2, A, L",
+            "default": null
+        },
+        {
+            "name": "crowd_level",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "HIGH | SURGE turnstile volume",
+            "default": null
+        },
+        {
+            "name": "taps_per_minute",
+            "type": [
+                "null",
+                "int"
+            ],
+            "doc": "Estimated turnstile entries per minute",
+            "default": null
+        },
+        {
+            "name": "alert_type",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "BUNCHING or GAP",
+            "default": null
+        },
+        {
+            "name": "headway_seconds",
+            "type": [
+                "null",
+                "long"
+            ],
+            "doc": "Observed train headway in seconds",
+            "default": null
+        },
+        {
+            "name": "bottleneck_severity",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "CRITICAL | ELEVATED | WATCH",
+            "default": null
+        },
+        {
+            "name": "dispatcher_recommendation",
+            "type": [
+                "null",
+                "string"
+            ],
+            "doc": "Actionable crowd mitigation instruction",
+            "default": null
+        },
+        {
+            "name": "detection_time",
+            "type": [
+                "null",
+                {
+                    "type": "long",
+                    "logicalType": "local-timestamp-millis"
+                }
+            ],
+            "doc": "Correlation timestamp",
             "default": null
         }
     ]
