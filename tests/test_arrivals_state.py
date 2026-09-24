@@ -94,3 +94,4 @@ def test_arrival_ttl_eviction(monkeypatch):
     # Advance beyond ARRIVAL_TTL_SEC (120s)
     clock.advance(130)
     assert len(st.snapshot()["arrivals"]) == 0
+

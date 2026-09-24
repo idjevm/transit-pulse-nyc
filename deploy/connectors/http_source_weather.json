@@ -1,0 +1,23 @@
+{
+  "name": "mta-weather-http-source",
+  "config": {
+    "connector.class": "HttpSource",
+    "name": "mta-weather-http-source",
+
+    "kafka.auth.mode": "KAFKA_API_KEY",
+    "kafka.api.key": "",
+    "kafka.api.secret": "",
+
+    "url": "https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current=temperature_2m,relative_humidity_2m,precipitation,rain,weather_code,wind_speed_10m",
+    "http.request.method": "GET",
+    "http.offset.mode": "SIMPLE_INCREMENTING",
+    "http.initial.offset": "0",
+    "request.interval.ms": "60000",
+
+    "topic.name.pattern": "nyc_weather_events",
+    "output.data.format": "JSON_SR",
+
+    "tasks.max": "1"
+  }
+}
+

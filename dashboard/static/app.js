@@ -209,7 +209,8 @@ function redrawShapes() {
 // ---- render on each snapshot ----
 function render(s) {
   setConn(s.connection_error ? s.connection_error : "LIVE", s.connection_error ? "error" : "online");
-  renderCounts(s.counts || {});
+  renderCounts(s.counts || {}, s.crowd_surges || []);
+  renderWeather(s.weather);
   renderUpdated(s.updated_ts);
   renderVehicles(s.trains || []);
   renderMapAlerts(s.alerts || [], s.trains || []);
@@ -221,12 +222,32 @@ function render(s) {
   renderRecommendations(s.recommendations || []);
 }
 
-function renderCounts(counts) {
+function renderCounts(counts, surges) {
   document.getElementById("stat-trains").textContent = counts.trains ?? "--";
   document.getElementById("stat-buses").textContent = counts.buses ?? "--";
   document.getElementById("stat-alerts").textContent = counts.alerts ?? "--";
   document.getElementById("stat-routes").textContent = counts.routes ?? "--";
+  const surgeEl = document.getElementById("stat-surges");
+  if (surgeEl) {
+    const n = counts.crowd_surges ?? surges.length ?? 0;
+    surgeEl.textContent = n;
+    surgeEl.title = surges.map(s => `${s.station_name || s.station_id}: ${s.crowd_level} (${s.taps_per_minute} taps/min)`).join("\n");
+  }
   document.getElementById("alerts-tag").textContent = (counts.alerts ?? 0) + " active";
+}
+
+function renderWeather(w) {
+  const elVal = document.getElementById("stat-weather");
+  const elDesc = document.getElementById("stat-weather-desc");
+  if (!elVal) return;
+  if (!w || w.temp_c == null) {
+    elVal.textContent = "--";
+    if (elDesc) elDesc.textContent = "NYC Weather";
+    return;
+  }
+  const icon = (w.precip_mm > 0) ? "🌧" : (w.weather_code >= 1 ? "⛅" : "☀️");
+  elVal.textContent = `${icon} ${Math.round(w.temp_c)}°C`;
+  if (elDesc) elDesc.textContent = `${w.condition} · ${Math.round(w.temp_f)}°F`;
 }
 
 function renderUpdated(ts) {

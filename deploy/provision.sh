@@ -335,6 +335,61 @@ else
   echo "    (skipping HTTP Sink connector: set ENABLE_HTTP_SINK=true and DECISIONS_WEBHOOK_URL in deploy.env to enable)"
 fi
 
+# ---- Optional: managed HTTP Source Connector (NYC Weather) ------------------
+WEATHER_TEMPLATE="$SCRIPT_DIR/connectors/http_source_weather.json"
+if [ "${ENABLE_WEATHER_SOURCE:-true}" = "true" ] && [ -n "${WEATHER_HTTP_URL:-}" ] && [ -f "$WEATHER_TEMPLATE" ]; then
+  log "HTTP Source connector: mta-weather-http-source"
+  echo "    url=$WEATHER_HTTP_URL  topic=nyc_weather_events"
+
+  confluent kafka topic create nyc_weather_events --cluster "$CLUSTER_ID" --environment "$ENV_ID" 2>/dev/null || true
+
+  curl -s -X PUT -u "$SR_API_KEY:$SR_API_SECRET" -H "Content-Type: application/json" \
+    "$SR_URL/config/nyc_weather_events-value" -d '{"compatibility": "NONE"}' >/dev/null 2>&1 || true
+
+  WEATHER_EXIST_ID="$(confluent connect cluster list --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json 2>/dev/null | jq -r '.[] | select(.name=="mta-weather-http-source") | .id' | head -1)"
+  if [ -n "$WEATHER_EXIST_ID" ]; then
+    echo "    -> connector exists ($WEATHER_EXIST_ID) — recreating with current key"
+    confluent connect cluster delete "$WEATHER_EXIST_ID" --cluster "$CLUSTER_ID" --environment "$ENV_ID" --force >/dev/null 2>&1 || true
+  fi
+  WEATHER_CFG="$(mktemp)"
+  jq --arg k "$KAFKA_API_KEY" --arg s "$KAFKA_API_SECRET" --arg u "$WEATHER_HTTP_URL" \
+    '.config."kafka.api.key"=$k | .config."kafka.api.secret"=$s | .config.url=$u' \
+    "$WEATHER_TEMPLATE" > "$WEATHER_CFG"
+  if confluent connect cluster create --config-file "$WEATHER_CFG" --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json >/dev/null 2>/tmp/mta_weather_err; then
+    echo "    -> connector submitted"
+  else
+    printf '\033[1;33m    WARN: weather connector create failed — core pipeline is unaffected.\n    %s\033[0m\n' \
+      "$(tr '\n' ' ' < /tmp/mta_weather_err)" >&2
+  fi
+  rm -f "$WEATHER_CFG" /tmp/mta_weather_err
+fi
+
+# ---- Optional: managed Datagen Source (Turnstile / Passenger Surges) ---------
+DATAGEN_TEMPLATE="$SCRIPT_DIR/connectors/datagen_passenger_surges.json"
+if [ "${ENABLE_PASSENGER_DATAGEN:-true}" = "true" ] && [ -f "$DATAGEN_TEMPLATE" ]; then
+  log "Datagen Source connector: mta-passenger-surges-datagen"
+  echo "    topic=mta_passenger_surges  class=DatagenSource"
+
+  confluent kafka topic create mta_passenger_surges --cluster "$CLUSTER_ID" --environment "$ENV_ID" 2>/dev/null || true
+
+  DATAGEN_EXIST_ID="$(confluent connect cluster list --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json 2>/dev/null | jq -r '.[] | select(.name=="mta-passenger-surges-datagen") | .id' | head -1)"
+  if [ -n "$DATAGEN_EXIST_ID" ]; then
+    echo "    -> connector exists ($DATAGEN_EXIST_ID) — recreating with current key"
+    confluent connect cluster delete "$DATAGEN_EXIST_ID" --cluster "$CLUSTER_ID" --environment "$ENV_ID" --force >/dev/null 2>&1 || true
+  fi
+  DATAGEN_CFG="$(mktemp)"
+  jq --arg k "$KAFKA_API_KEY" --arg s "$KAFKA_API_SECRET" \
+    '.config."kafka.api.key"=$k | .config."kafka.api.secret"=$s' \
+    "$DATAGEN_TEMPLATE" > "$DATAGEN_CFG"
+  if confluent connect cluster create --config-file "$DATAGEN_CFG" --cluster "$CLUSTER_ID" --environment "$ENV_ID" -o json >/dev/null 2>/tmp/mta_datagen_err; then
+    echo "    -> connector submitted"
+  else
+    printf '\033[1;33m    WARN: datagen connector create failed — core pipeline is unaffected.\n    %s\033[0m\n' \
+      "$(tr '\n' ' ' < /tmp/mta_datagen_err)" >&2
+  fi
+  rm -f "$DATAGEN_CFG" /tmp/mta_datagen_err
+fi
+
 # ---- write .env for the producer + dashboard --------------------------------
 log "Writing $OUT_ENV"
 cat > "$OUT_ENV" <<EOF
@@ -363,6 +418,8 @@ TOPIC_BUS_POSITIONS=mta_bus_positions
 TOPIC_ARRIVAL_ESTIMATES=mta_arrival_estimates
 TOPIC_HEADWAY_ALERTS=mta_headway_alerts
 TOPIC_RECOMMENDATIONS=mta_dispatcher_decisions
+TOPIC_WEATHER_EVENTS=nyc_weather_events
+TOPIC_PASSENGER_SURGES=mta_passenger_surges
 DASHBOARD_GROUP_ID=mta-dashboard
 EOF
 # OUT_ENV holds plaintext API keys/secrets — restrict to the owner.

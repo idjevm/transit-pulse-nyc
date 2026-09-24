@@ -56,6 +56,9 @@ body {
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
+.stat.weather-stat { min-width: 120px; }
+.stat.weather-stat .stat-val { font-size: 1.1rem; color: #60a5fa; }
+.stat.surge-stat .stat-val { color: var(--orange); }
 .stat-label { color: var(--muted); font-size: 0.66rem; letter-spacing: 1px; text-transform: uppercase; }
 
 .conn {
@@ -125,6 +128,19 @@ body {
   letter-spacing: 1px;
 }
 .copilot-tag { color: var(--green); border-color: #1c3b2c; background: #0e2018; }
+.webhook-tag {
+  color: var(--accent);
+  border-color: #173041;
+  background: #0c1722;
+  text-decoration: none;
+  font-size: 0.62rem;
+  transition: all 0.15s ease;
+}
+.webhook-tag:hover {
+  background: #17354f;
+  border-color: var(--accent);
+  color: #fff;
+}
 .updated { margin-left: auto; font-family: var(--mono); font-size: 0.66rem; color: var(--muted); letter-spacing: 0.5px; }
 
 /* ---- map controls (filter bar) ---- */

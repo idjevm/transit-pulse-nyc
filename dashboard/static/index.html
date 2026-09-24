@@ -42,6 +42,14 @@
         <span class="stat-val" id="stat-routes">--</span>
         <span class="stat-label">Routes live</span>
       </div>
+      <div class="stat weather-stat">
+        <span class="stat-val" id="stat-weather">--</span>
+        <span class="stat-label" id="stat-weather-desc">NYC Weather</span>
+      </div>
+      <div class="stat surge-stat">
+        <span class="stat-val" id="stat-surges">0</span>
+        <span class="stat-label">Crowd surges</span>
+      </div>
       <span id="conn" class="conn offline" role="status" aria-live="polite">● CONNECTING</span>
     </div>
   </header>
@@ -117,6 +125,7 @@
       <section class="card feed-card">
         <h2 class="card-title">
           AI DISPATCHER COPILOT
+          <a class="tag webhook-tag" id="webhook-link" href="https://webhook.site/#!/view/e10eda90-4bc4-4d63-bfc7-527bc12b8895" target="_blank" rel="noopener" title="Live Confluent HttpSink Delivery">webhook live ↗</a>
           <span class="tag copilot-tag">recommendations</span>
         </h2>
         <ul class="feed recs" id="recs-feed"></ul>

@@ -1,0 +1,21 @@
+{
+  "name": "mta-passenger-surges-datagen",
+  "config": {
+    "connector.class": "DatagenSource",
+    "name": "mta-passenger-surges-datagen",
+
+    "kafka.auth.mode": "KAFKA_API_KEY",
+    "kafka.api.key": "",
+    "kafka.api.secret": "",
+
+    "kafka.topic": "mta_passenger_surges",
+    "output.data.format": "AVRO",
+    "max.interval": "4000",
+    "schema.keyfield": "station_id",
+
+    "schema.string": "{\"type\":\"record\",\"name\":\"PassengerSurge\",\"namespace\":\"org.mta.pulse\",\"fields\":[{\"name\":\"station_id\",\"type\":{\"type\":\"enum\",\"name\":\"StationId\",\"symbols\":[\"S127\",\"SR16\",\"SA27\",\"S725\",\"SL03\",\"S631\",\"S901\",\"SD14\"]}},{\"name\":\"station_name\",\"type\":{\"type\":\"enum\",\"name\":\"StationName\",\"symbols\":[\"Times_Sq\",\"Grand_Central\",\"Union_Sq\",\"Herald_Sq\",\"Fulton_St\",\"Barclays_Ctr\",\"Penn_Sta\"]}},{\"name\":\"line\",\"type\":{\"type\":\"enum\",\"name\":\"SubwayLine\",\"symbols\":[\"L1\",\"L2\",\"L3\",\"L4\",\"L5\",\"L6\",\"L7\",\"LA\",\"LC\",\"LE\",\"LN\",\"LQ\",\"LR\",\"LL\"]}},{\"name\":\"taps_per_minute\",\"type\":{\"type\":\"int\",\"arg.properties\":{\"range\":{\"min\":200,\"max\":2400}}}},{\"name\":\"crowd_level\",\"type\":{\"type\":\"enum\",\"name\":\"CrowdLevel\",\"symbols\":[\"NORMAL\",\"MODERATE\",\"HIGH\",\"SURGE\"]}},{\"name\":\"event_time\",\"type\":{\"type\":\"long\",\"arg.properties\":{\"iteration\":{\"start\":1727134000000,\"step\":4000}}}}]}",
+
+    "tasks.max": "1"
+  }
+}
+

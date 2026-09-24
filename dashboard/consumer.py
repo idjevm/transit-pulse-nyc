@@ -18,6 +18,7 @@ job (08) is optional, so its topic is expected to be absent in many runs.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -35,7 +36,13 @@ from producers import config  # noqa: E402
 
 logger = logging.getLogger("mta-dashboard.consumer")
 
-EARLIEST = {config.TOPIC_HEADWAY_ALERTS, config.TOPIC_DECISIONS, config.TOPIC_FORECAST}
+EARLIEST = {
+    config.TOPIC_HEADWAY_ALERTS,
+    config.TOPIC_DECISIONS,
+    config.TOPIC_FORECAST,
+    config.TOPIC_WEATHER_EVENTS,
+    config.TOPIC_PASSENGER_SURGES,
+}
 
 BENIGN = frozenset({
     KafkaError.UNKNOWN_TOPIC_OR_PART,
@@ -78,6 +85,8 @@ def run_consumer(state: DashboardState, stop) -> None:
         config.TOPIC_HEADWAY_ALERTS,
         config.TOPIC_DECISIONS,
         config.TOPIC_FORECAST,
+        config.TOPIC_WEATHER_EVENTS,
+        config.TOPIC_PASSENGER_SURGES,
     ]
     routes = {
         config.TOPIC_VEHICLE_POSITIONS: state.update_vehicle,
@@ -86,6 +95,8 @@ def run_consumer(state: DashboardState, stop) -> None:
         config.TOPIC_HEADWAY_ALERTS: state.add_alert,
         config.TOPIC_DECISIONS: state.add_recommendation,
         config.TOPIC_FORECAST: state.update_forecast,
+        config.TOPIC_WEATHER_EVENTS: state.update_weather,
+        config.TOPIC_PASSENGER_SURGES: state.update_passenger_surge,
     }
 
     try:
@@ -114,11 +125,22 @@ def run_consumer(state: DashboardState, stop) -> None:
                     state.record_error(msg.error().name(), str(msg.error()))
                 continue
             topic = msg.topic()
+            value = None
             try:
                 value = deserialize(msg.value(), SerializationContext(topic, MessageField.VALUE))
-            except Exception as exc:  # noqa: BLE001 - one bad record must not kill the tail
-                logger.debug("decode failed on %s: %s", topic, exc)
-                continue
+            except Exception as exc:  # noqa: BLE001 - fallback for JSON_SR or plain JSON
+                raw = msg.value()
+                if raw:
+                    try:
+                        if raw[0] == 0 and len(raw) > 5:
+                            value = json.loads(raw[5:].decode("utf-8", errors="replace"))
+                        else:
+                            value = json.loads(raw.decode("utf-8", errors="replace"))
+                    except Exception:
+                        logger.debug("decode failed on %s: %s", topic, exc)
+                        continue
+                else:
+                    continue
             if value is None:
                 continue
             if msg.key() and isinstance(value, dict):
@@ -128,7 +150,8 @@ def run_consumer(state: DashboardState, stop) -> None:
                         value.update(key_val)
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("key decode failed on %s: %s", topic, exc)
-            routes[topic](value)
+            if topic in routes:
+                routes[topic](value)
             state.clear_error()
     except Exception as exc:  # noqa: BLE001
         logger.error("feed stopped: %s", exc)

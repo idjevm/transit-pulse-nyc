@@ -30,6 +30,8 @@ TOPIC_BUS_POSITIONS = os.environ.get("TOPIC_BUS_POSITIONS", "mta_bus_positions")
 # Predictive headway forecast (flink/08). Optional job: the consumer tolerates the
 # topic not existing yet, so this is safe to wire up whether or not 08 is running.
 TOPIC_FORECAST = os.environ.get("TOPIC_FORECAST", "mta_headway_forecast")
+TOPIC_WEATHER_EVENTS = os.environ.get("TOPIC_WEATHER_EVENTS", "nyc_weather_events")
+TOPIC_PASSENGER_SURGES = os.environ.get("TOPIC_PASSENGER_SURGES", "mta_passenger_surges")
 
 # ---- Producer tuning ----
 MTA_FEEDS = os.environ.get("MTA_FEEDS", "all")

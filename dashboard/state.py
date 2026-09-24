@@ -70,6 +70,8 @@ class DashboardState:
         self._alerts: deque[dict] = deque(maxlen=MAX_ALERTS)
         self._recs: deque[dict] = deque(maxlen=MAX_RECS)
         self._sim: dict[str, list] = {"alerts": [], "recs": [], "forecasts": []}
+        self._weather: dict | None = None
+        self._surges: dict[str, dict] = {}
         self._connection_error: str | None = None
         self._last_record_ts: float = 0.0
 
@@ -192,6 +194,56 @@ class DashboardState:
             }
             self._last_record_ts = _now()
 
+    def update_weather(self, w: dict) -> None:
+        if not isinstance(w, dict):
+            return
+        cur = w.get("current") or w
+        temp = cur.get("temperature_2m")
+        if temp is None:
+            temp = cur.get("temp")
+        precip = float(cur.get("precipitation") or cur.get("rain") or 0.0)
+        code = int(cur.get("weather_code") or 0)
+        wind = float(cur.get("wind_speed_10m") or cur.get("wind") or 0.0)
+
+        # WMO weather code descriptions
+        wmo = {
+            0: "Clear Sky", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast",
+            45: "Foggy", 48: "Rime Fog", 51: "Light Drizzle", 53: "Drizzle",
+            55: "Heavy Drizzle", 61: "Light Rain", 63: "Rain", 65: "Heavy Rain",
+            71: "Light Snow", 73: "Snow", 75: "Heavy Snow", 80: "Rain Showers",
+            81: "Heavy Showers", 95: "Thunderstorm",
+        }
+        condition = wmo.get(code, "Clear" if code == 0 else "Partly Cloudy")
+
+        with self._lock:
+            self._weather = {
+                "temp_c": round(float(temp), 1) if temp is not None else None,
+                "temp_f": round(float(temp) * 9 / 5 + 32, 1) if temp is not None else None,
+                "condition": condition,
+                "precip_mm": precip,
+                "wind_kph": round(wind, 1),
+                "weather_code": code,
+                "_seen": _now(),
+            }
+            self._last_record_ts = _now()
+
+    def update_passenger_surge(self, p: dict) -> None:
+        if not isinstance(p, dict):
+            return
+        station_id = p.get("station_id") or p.get("station_name")
+        if not station_id:
+            return
+        with self._lock:
+            self._surges[str(station_id)] = {
+                "station_id": str(station_id),
+                "station_name": p.get("station_name", str(station_id)),
+                "line": p.get("line", ""),
+                "taps_per_minute": int(p.get("taps_per_minute") or 0),
+                "crowd_level": str(p.get("crowd_level") or "NORMAL").upper(),
+                "_seen": _now(),
+            }
+            self._last_record_ts = _now()
+
     # ---- judge-triggered simulation (demo only) ----
     def inject_simulation(self, scenario: str) -> dict:
         """Inject a clearly-labeled SIMULATED disruption (alert + recommendation +
@@ -308,6 +360,18 @@ class DashboardState:
             sim = {kind: [{k: v for k, v in x.items() if k != "_seen"} for x in self._sim[kind]]
                    for kind in ("alerts", "recs", "forecasts")}
 
+            # Evict expired crowd surges (> 180s)
+            for k in [k for k, v in self._surges.items() if now - v["_seen"] > 180]:
+                del self._surges[k]
+            active_surges = [
+                {k: v[k] for k in ("station_id", "station_name", "line", "taps_per_minute", "crowd_level")}
+                for v in self._surges.values()
+                if v.get("crowd_level") in ("SURGE", "HIGH")
+            ]
+            weather_out = None
+            if self._weather and (now - self._weather["_seen"] <= 1800):
+                weather_out = {k: v for k, v in self._weather.items() if k != "_seen"}
+
             alerts = sim["alerts"] + list(self._alerts)[::-1]
             recs = sim["recs"] + list(self._recs)[::-1]
             forecasts = sim["forecasts"] + forecasts
@@ -326,10 +390,13 @@ class DashboardState:
                 "buses": n_bus,
                 "routes": routes_live,
                 "alerts": len(alerts),
+                "crowd_surges": len(active_surges),
             },
             "trains": trains[:MAX_TRAINS_OUT],
             "arrivals": arrivals[:MAX_ARRIVALS_OUT],
             "alerts": alerts,
             "recommendations": recs,
             "forecasts": forecasts[:MAX_FORECASTS_OUT],
+            "weather": weather_out,
+            "crowd_surges": active_surges,
         }

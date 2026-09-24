@@ -178,6 +178,21 @@ def _summarize_state(snap: dict) -> str:
                 f"in {a.get('eta_seconds')}s"
             )
 
+    weather = snap.get("weather")
+    if weather:
+        temp_str = f"{weather.get('temp_f')}°F ({weather.get('temp_c')}°C)" if weather.get("temp_f") is not None else "N/A"
+        lines.append(
+            f"WEATHER: {weather.get('condition')}, {temp_str}, rain: {weather.get('precip_mm', 0)}mm, wind: {weather.get('wind_kph', 0)} km/h"
+        )
+
+    surges = snap.get("crowd_surges", [])
+    if surges:
+        surge_desc = ", ".join(
+            f"{s.get('station_name')} [{s.get('line')}] ({s.get('crowd_level')}, {s.get('taps_per_minute')} taps/min)"
+            for s in surges[:5]
+        )
+        lines.append(f"STATION PASSENGER SURGES: {surge_desc}")
+
     return "\n".join(lines)
 
 
