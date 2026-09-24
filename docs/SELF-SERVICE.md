@@ -1,6 +1,6 @@
 # Transit Pulse NYC — Self-Service Walkthrough & Guide
 
-Modeled on the architecture of real-time streaming intelligence platforms for **Confluent AI Day NYC**. We combine live MTA telemetry, weather, and passenger demand with Flink SQL and in-stream AI.
+Modeled on the architecture of real-time streaming intelligence platforms for [**Confluent AI Developer Day 2026**](https://events.confluent.io/ai-developerday-2026). We combine live MTA telemetry, weather, and passenger demand with Flink SQL and in-stream AI.
 
 ```
 MTA GTFS-RT Feeds (Subway & Buses) ──► Kafka Topics (Avro + Schema Registry)

@@ -1,4 +1,4 @@
-# Confluent AI Day NYC — App Submission
+# [Confluent AI Developer Day 2026](https://events.confluent.io/ai-developerday-2026) — App Submission
 
 ## App name
 Transit Pulse NYC — Real-Time MTA Streaming Intelligence & Dispatcher Copilot

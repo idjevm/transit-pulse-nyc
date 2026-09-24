@@ -181,7 +181,9 @@ mta-streaming-intelligence/
 │   ├── build_shapes.py        # build subway route-line geometry (GeoJSON)
 │   └── setup_rtce.py          # optional: wire up the external RTCE/MCP integration (best-effort)
 └── docs/
-    └── SUBMISSION.md          # answers for the AI Day submission form
+    ├── SCHEMAS.md             # Confluent Schema Registry schemas reference
+    ├── SELF-SERVICE.md        # end-to-end self-service deployment guide
+    └── SUBMISSION.md          # answers for the Confluent AI Developer Day submission form
 ```
 
 ## Real-Time Fleet Map & Geometry
