@@ -1,3 +1,11 @@
+# 🏆 #1 Prize Winner: Confluent AI Day NYC 2026
+
+> **Winner of the #1 Overall Prize for Best Use of the Confluent Platform** at the [Confluent AI Day NYC Hackathon](https://events.confluent.io/confluentaiday2026nyc) (September 2026).
+>
+> Built with **Confluent Cloud**, **Apache Flink SQL**, **Confluent Schema Registry**, **Managed HTTP Source Connectors**, and **In-Stream & Interactive AI (Google Gemini, falling back to Anthropic Claude)**.
+
+---
+
 # Transit Pulse NYC
 
 *MTA Streaming Intelligence — Real-Time NYC Transit Intelligence Powered by Confluent & AI*
