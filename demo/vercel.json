@@ -1,0 +1,1 @@
+{"$schema":"https://openapi.vercel.sh/vercel.json","cleanUrls":true,"headers":[{"headers":[{"key":"Cache-Control","value":"no-cache, no-store, must-revalidate"}],"source":"/(.*)"}]}

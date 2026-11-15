@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Transit Pulse NYC — Demo (Mock Data)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<style>
+:root{--bg:#0a0e14;--panel:#121823;--panel-2:#0e131c;--line:#1f2a3a;--line-soft:#131b27;--text:#e6edf3;--muted:#7d8da3;--accent:#4cc9f0;--green:#1fc77b;--amber:#ffb020;--red:#ff4d4d;--orange:#ff8c3b;--mono:"SFMono-Regular","Roboto Mono",Consolas,Menlo,monospace;font-size:15px}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 600px at 72% -12%,#16202e 0%,var(--bg) 62%);color:var(--text);font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;min-height:100vh}
+.demo-banner{background:#ffb020;color:#111;text-align:center;font-weight:800;letter-spacing:1px;padding:8px 12px;font-size:.82rem}
+.demo-banner .prize{display:block;font-weight:600;font-size:.78rem;margin-top:2px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#101722,#0b0f17)}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.logo{color:var(--accent);font-size:1.25rem}
+.brand-name{font-weight:800;letter-spacing:2px;font-size:1.02rem}
+.brand-sub{color:var(--muted);letter-spacing:3px;font-size:.72rem}
+.demo-pill{font-family:var(--mono);font-size:.68rem;font-weight:800;letter-spacing:1px;color:#111;background:var(--amber);border-radius:999px;padding:3px 10px}
+.stats{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.stat{display:flex;flex-direction:column;align-items:flex-end;min-width:88px;padding:4px 14px;border-left:1px solid var(--line)}
+.stat-val{font-family:var(--mono);font-size:1.5rem;font-weight:700;color:var(--accent);line-height:1.1;font-variant-numeric:tabular-nums}
+.stat.weather-stat{min-width:120px}.stat.weather-stat .stat-val{font-size:1.05rem;color:#60a5fa}
+.stat.surge-stat .stat-val{color:var(--orange)}
+.stat-label{color:var(--muted);font-size:.66rem;letter-spacing:1px;text-transform:uppercase}
+.conn{font-family:var(--mono);font-size:.74rem;letter-spacing:1px;padding:6px 12px;border-radius:999px;border:1px solid #1c3b2c;background:#0e2018;color:var(--green);white-space:nowrap}
+.grid{display:grid;grid-template-columns:3fr 2fr;grid-template-areas:"map right" "board right" "agents agents";gap:16px;padding:18px 24px;max-width:1600px;margin:0 auto;align-items:start}
+.map-card{grid-area:map}.board-card{grid-area:board}.agents-card{grid-area:agents}
+.right-col{grid-area:right;display:flex;flex-direction:column;gap:16px;min-height:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card-title{margin:0 0 12px;font-size:.8rem;letter-spacing:2px;color:var(--muted);font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tag{margin-left:auto;font-family:var(--mono);font-size:.64rem;color:var(--accent);border:1px solid #173041;background:#0c1722;padding:2px 9px;border-radius:999px;letter-spacing:1px}
+.copilot-tag{color:var(--green);border-color:#1c3b2c;background:#0e2018}
+.updated{margin-left:auto;font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+.map-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;margin:0 0 12px;padding:10px 12px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px}
+.ctl-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ctl-group.legend{margin-left:auto;gap:12px}
+.ctl-label{color:var(--muted);font-size:.68rem;letter-spacing:1px;text-transform:uppercase}
+.mode-toggle,.chk{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;cursor:pointer;user-select:none}
+.mode-toggle input,.chk input{accent-color:var(--accent);cursor:pointer}
+.mode-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.mode-toggle.subway .mode-dot{background:#EE352E}.mode-toggle.bus .mode-dot{background:#3aa0ff}
+.route-select{background:#0b1119;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-family:var(--mono);font-size:.8rem;min-width:120px}
+.legend-item{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:.72rem}
+.legend-ico{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:4px;font-size:.7rem}
+.legend-ico.train-ico{background:#00933C;border-radius:50%}.legend-ico.bus-ico{color:#3aa0ff}.legend-ico.alert-ico{color:var(--orange)}
+#map{width:100%;height:560px;border-radius:10px;border:1px solid var(--line);background:#0b0f17}
+.veh-icon{background:none;border:none}
+.bullet{display:inline-flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:800;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.55)}
+.bullet.subway{width:22px;height:22px;border-radius:50%;font-size:.72rem;border:2px solid rgba(0,0,0,.35)}
+.bullet.bus{position:relative;min-width:34px;height:20px;padding:0 5px;border-radius:5px;font-size:.68rem;border:1px solid rgba(0,0,0,.4)}
+.bus-arrow{position:absolute;top:-11px;left:50%;margin-left:-6px;font-size:.7rem;color:#fff;text-shadow:0 0 2px rgba(0,0,0,.8);transform-origin:50% 60%}
+.alert-marker,.forecast-marker{background:none;border:none}
+.alert-tri,.forecast-ring{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;font-size:1.15rem;text-shadow:0 0 6px rgba(0,0,0,.9);animation:alertpulse 1.1s infinite}
+.alert-tri.bunching,.forecast-ring.bunching{color:var(--orange)}.alert-tri.gap,.forecast-ring.gap{color:var(--amber)}
+@keyframes alertpulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.3);opacity:.6}}
+.leaflet-container{background:#0b0f17}
+.train-tt{background:#0d141f;border:1px solid var(--line);color:var(--text);font-family:var(--mono);font-size:.72rem;border-radius:6px}
+.train-tt .tt-status{color:var(--muted)}
+.route-chip{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;font-family:var(--mono);font-weight:800;font-size:.82rem;line-height:1}
+.board{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.board th{text-align:left;color:var(--muted);font-size:.68rem;letter-spacing:1px;padding:5px 8px;border-bottom:1px solid var(--line)}
+.board td{padding:6px 8px;border-bottom:1px solid var(--line-soft);font-size:.82rem}
+.board .eta-col{text-align:right;font-family:var(--mono);font-weight:600}
+.arriving{color:var(--green);font-weight:700}
+.feed{list-style:none;margin:0;padding:0;overflow-y:auto;max-height:300px;display:flex;flex-direction:column;gap:8px}
+.recs{max-height:340px}.forecasts{max-height:240px}
+.empty-item{color:var(--muted);font-style:italic;font-size:.84rem;padding:18px 4px;text-align:center}
+.alert-item,.forecast-item,.rec-item{border:1px solid var(--line);border-left-width:3px;border-radius:8px;padding:8px 10px;background:var(--panel-2)}
+.alert-item.bunching,.forecast-item.bunching{border-left-color:var(--orange)}
+.alert-item.gap,.forecast-item.gap{border-left-color:var(--amber)}
+.alert-head,.forecast-head,.rec-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.alert-type,.forecast-type{font-family:var(--mono);font-size:.66rem;font-weight:700;letter-spacing:1px;padding:2px 7px;border-radius:4px}
+.alert-type.bunching,.forecast-type.bunching{color:var(--orange);background:rgba(255,140,59,.14)}
+.alert-type.gap,.forecast-type.gap{color:var(--amber);background:rgba(255,176,32,.14)}
+.alert-time{margin-left:auto;font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+.alert-body,.forecast-body{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:6px;font-size:.82rem}
+.alert-body .headway,.forecast-body .countdown{font-family:var(--mono);color:var(--muted);font-size:.76rem}
+.forecast-body .countdown{color:var(--accent)}
+.action-badge{font-family:var(--mono);font-size:.68rem;font-weight:800;letter-spacing:1px;padding:3px 9px;border-radius:5px;color:#06121a;background:var(--accent)}
+.action-badge.HOLD-TRAIN{background:var(--red);color:#fff}.action-badge.SKIP-STOP{background:var(--orange)}
+.action-badge.GAP-FILL{background:var(--amber)}.action-badge.MONITOR{background:#2c3a4e;color:var(--text)}
+.rec-note{margin:8px 0 0;font-size:.84rem;line-height:1.4}
+.rider-msg{margin:7px 0 0;font-size:.78rem;line-height:1.4;color:var(--muted);font-style:italic;border-left:2px solid var(--line);padding-left:9px}
+.sim-badge{font-family:var(--mono);font-size:.6rem;font-weight:800;letter-spacing:1px;color:#06121a;background:var(--orange);border-radius:4px;padding:1px 6px}
+.sim-btn,.ctl-btn{font-family:var(--mono);font-size:.72rem;font-weight:700;letter-spacing:.5px;color:#06121a;background:var(--orange);border:none;border-radius:6px;padding:5px 12px;cursor:pointer}
+.sim-btn:hover,.ctl-btn:hover{filter:brightness(1.08)}
+.ctl-btn{background:#2c3a4e;color:var(--text)}
+.ctl-btn.primary{background:var(--green);color:#06121a}
+.agent-tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.agent-tab{font-family:var(--mono);font-size:.74rem;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.agent-tab.active{color:#06121a;background:var(--accent);border-color:var(--accent);font-weight:700}
+.agent-pane{display:none}.agent-pane.active{display:block}
+.agent-hint{margin:0 0 10px;color:var(--muted);font-size:.82rem}
+.agent-form{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.agent-input,.agent-textarea{flex:1 1 180px;background:#0b1119;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:.86rem}
+.agent-textarea{width:100%;resize:vertical;margin-bottom:10px}
+.agent-run{font-family:var(--mono);font-size:.78rem;font-weight:700;color:#06121a;background:var(--green);border:none;border-radius:6px;padding:8px 18px;cursor:pointer}
+.agent-out{margin-top:14px;font-size:.88rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.agent-out:empty{display:none}
+.agent-out .route-title{font-weight:700;color:var(--accent);margin-bottom:4px}
+.agent-out .route-meta{color:var(--muted);font-size:.8rem;margin-top:8px}
+.mock-note{color:var(--amber);font-size:.78rem;margin-top:10px}
+footer{padding:16px 24px 28px;text-align:center;color:var(--muted);font-size:.8rem;line-height:1.6}
+footer b{color:var(--amber)}
+@media (max-width:1100px){.grid{grid-template-columns:1fr;grid-template-areas:"map" "right" "board" "agents"}#map{height:420px}.stat{min-width:70px;padding:4px 8px}.stat-val{font-size:1.2rem}}
+</style>
+</head>
+<body>
+<div class="demo-banner">DEMO &mdash; SIMULATED DATA &middot; NO LIVE MTA FEED &middot; NO CONFLUENT
+<span class="prize">&#127942; #1 Prize Winner: Confluent AI Day NYC 2026 (September 2026)</span></div>
+<header class="topbar">
+  <div class="brand"><span class="logo">&#9673;</span><span class="brand-name">TRANSIT PULSE NYC</span><span class="brand-sub">MTA STREAMING INTELLIGENCE &middot; DEMO</span><span class="demo-pill">MOCK / DEMO</span></div>
+  <div class="stats">
+    <div class="stat"><span class="stat-val" id="stat-trains">18</span><span class="stat-label">Trains</span></div>
+    <div class="stat"><span class="stat-val" id="stat-buses">24</span><span class="stat-label">Buses</span></div>
+    <div class="stat"><span class="stat-val" id="stat-alerts">3</span><span class="stat-label">Active alerts</span></div>
+    <div class="stat"><span class="stat-val" id="stat-routes">26</span><span class="stat-label">Routes live</span></div>
+    <div class="stat weather-stat"><span class="stat-val" id="stat-weather">&#9728; 21&deg;C</span><span class="stat-label" id="stat-weather-desc">Clear &middot; 70&deg;F</span></div>
+    <div class="stat surge-stat"><span class="stat-val" id="stat-surges">2</span><span class="stat-label">Crowd surges</span></div>
+    <span id="conn" class="conn">&#9679; SIMULATED LIVE</span>
+  </div>
+</header>
+<main class="grid">
+  <section class="card map-card">
+    <h2 class="card-title">LIVE MAP <span class="tag">SIMULATED</span><span class="updated" id="updated"></span></h2>
+    <div class="map-controls">
+      <div class="ctl-group modes">
+        <label class="mode-toggle subway"><input type="checkbox" id="mode-subway" checked /><span class="mode-dot"></span> Subway</label>
+        <label class="mode-toggle bus"><input type="checkbox" id="mode-bus" checked /><span class="mode-dot"></span> Bus</label>
+      </div>
+      <div class="ctl-group"><label class="ctl-label" for="route-filter">Route</label><select id="route-filter" class="route-select"><option value="">All routes</option></select></div>
+      <div class="ctl-group"><label class="chk"><input type="checkbox" id="show-shapes" checked /> Route lines</label></div>
+      <div class="ctl-group">
+        <button id="inject-bunching" class="sim-btn" type="button">Inject Bunching (Times Sq)</button>
+        <button id="inject-gap" class="sim-btn" type="button">Inject Gap (125 St)</button>
+        <button id="inject-clear" class="ctl-btn" type="button">Clear</button>
+      </div>
+      <div class="ctl-group">
+        <button id="pause-btn" class="ctl-btn primary" type="button">Pause</button>
+        <button id="reset-btn" class="ctl-btn" type="button">Reset</button>
+      </div>
+      <div class="ctl-group legend"><span class="legend-item"><span class="legend-ico train-ico"></span>train</span><span class="legend-item"><span class="legend-ico bus-ico">&#9650;</span>bus</span><span class="legend-item"><span class="legend-ico alert-ico">&#9650;</span>alert</span><span class="legend-item"><span class="legend-ico">&#9681;</span>forecast</span></div>
+    </div>
+    <div id="map"></div>
+  </section>
+  <aside class="right-col">
+    <section class="card feed-card"><h2 class="card-title">BUNCHING &amp; GAP ALERTS <span class="tag" id="alerts-tag">3 active</span></h2><ul class="feed" id="alerts-feed"></ul></section>
+    <section class="card feed-card"><h2 class="card-title">PREDICTIVE HEADWAY <span class="tag" id="forecast-tag">3 predicted</span></h2><ul class="feed forecasts" id="forecast-feed"></ul></section>
+    <section class="card feed-card"><h2 class="card-title">AI DISPATCHER COPILOT <span class="tag copilot-tag">simulated recommendations</span></h2><ul class="feed recs" id="recs-feed"></ul></section>
+  </aside>
+  <section class="card board-card"><h2 class="card-title">NEXT ARRIVALS <span class="tag">SIMULATED</span></h2>
+    <table class="board"><thead><tr><th>ROUTE</th><th>DIRECTION</th><th>STATION</th><th class="eta-col">ETA</th></tr></thead><tbody id="board-body"></tbody></table>
+  </section>
+  <section class="card agents-card">
+    <h2 class="card-title">AI AGENTS <span class="tag copilot-tag" id="agent-model-tag">mock &middot; simulated, no live model</span></h2>
+    <div class="agent-tabs" role="tablist">
+      <button class="agent-tab active" data-agent="advisor" role="tab" aria-selected="true">Rider Advisor</button>
+      <button class="agent-tab" data-agent="operator" role="tab" aria-selected="false">Operator Prediction</button>
+      <button class="agent-tab" data-agent="route" role="tab" aria-selected="false">Route Designer</button>
+    </div>
+    <div class="agent-pane active" id="pane-advisor"><p class="agent-hint">Ask what to watch for on a trip, grounded in the simulated fleet and alerts.</p>
+      <div class="agent-form"><input type="text" id="adv-origin" class="agent-input" placeholder="From (e.g. Union Sq)" /><input type="text" id="adv-dest" class="agent-input" placeholder="To (e.g. Astoria)" /></div>
+      <textarea id="adv-q" class="agent-textarea" rows="2" placeholder="Optional: what to watch for heading there right now?"></textarea>
+      <button class="agent-run" data-agent="advisor">Ask advisor</button><div class="agent-out" id="out-advisor"></div></div>
+    <div class="agent-pane" id="pane-operator"><p class="agent-hint">Ask the ops analyst how to improve service and what will degrade next (simulated).</p>
+      <textarea id="op-q" class="agent-textarea" rows="2" placeholder="Default: assess health, predict next problems, recommend actions."></textarea>
+      <button class="agent-run" data-agent="operator">Run analysis</button><div class="agent-out" id="out-operator"></div></div>
+    <div class="agent-pane" id="pane-route"><p class="agent-hint">Propose a new bus route for a corridor; it draws on the map (cyan dashed).</p>
+      <div class="agent-form"><input type="text" id="rt-origin" class="agent-input" placeholder="From (e.g. Red Hook)" /><input type="text" id="rt-dest" class="agent-input" placeholder="To (e.g. Downtown Bklyn)" /></div>
+      <textarea id="rt-constraints" class="agent-textarea" rows="2" placeholder="Optional goals/constraints (e.g. avoid BQE, serve transit deserts)"></textarea>
+      <button class="agent-run" data-agent="route">Design route</button><div class="agent-out" id="out-route"></div></div>
+  </section>
+</main>
+<footer><b>DEMO &mdash; simulated data, no live MTA feed, no Confluent.</b><br />Transit Pulse NYC &middot; &#127942; #1 Prize Winner: Confluent AI Day NYC 2026 (September 2026) &middot; All vehicles, alerts, arrivals, weather and AI answers on this page are simulated in your browser.</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+"use strict";
+/* ===== Simulated data only. No fetch, no WebSocket, no API keys. ===== */
+var ROUTE_COLORS={"1":"#EE352E","2":"#EE352E","3":"#EE352E","4":"#00933C","5":"#00933C","6":"#00933C","7":"#B933AD","A":"#0039A6","C":"#0039A6","E":"#0039A6","B":"#FF6319","D":"#FF6319","F":"#FF6319","M":"#FF6319","N":"#FCCC0A","Q":"#FCCC0A","R":"#FCCC0A","W":"#FCCC0A","G":"#6CBE45","J":"#996633","Z":"#996633","L":"#A7A9AC"};
+function routeColor(r){return ROUTE_COLORS[r]||"#3aa0ff";}
+function textColorFor(hex){var c=hex.replace("#",""),r=parseInt(c.slice(0,2),16),g=parseInt(c.slice(2,4),16),b=parseInt(c.slice(4,6),16);return (0.299*r+0.587*g+0.114*b)/255>0.62?"#000":"#fff";}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function rnd(a,b){return a+Math.random()*(b-a);}
+function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
+
+/* Approximate NYC polylines [lat, lon]. Trunks are simplified, not GTFS geometry. */
+var SUBWAY=[
+{id:"1",pts:[[40.889,-73.898],[40.868,-73.905],[40.841,-73.94],[40.81,-73.95],[40.793,-73.972],[40.778,-73.982],[40.755,-73.987],[40.75,-73.991],[40.737,-73.996],[40.715,-74.009],[40.71,-74.008],[40.701,-74.013]]},
+{id:"2",pts:[[40.889,-73.898],[40.841,-73.94],[40.793,-73.972],[40.755,-73.987],[40.737,-73.996],[40.715,-74.009],[40.693,-73.99],[40.684,-73.978],[40.68,-73.956],[40.669,-73.95],[40.65,-73.949]]},
+{id:"3",pts:[[40.889,-73.898],[40.841,-73.94],[40.793,-73.972],[40.755,-73.987],[40.737,-73.996],[40.715,-74.009],[40.693,-73.99],[40.684,-73.978],[40.68,-73.956],[40.669,-73.942],[40.664,-73.929],[40.666,-73.884]]},
+{id:"4",pts:[[40.886,-73.878],[40.85,-73.9],[40.805,-73.946],[40.779,-73.955],[40.752,-73.977],[40.735,-73.991],[40.71,-74.007],[40.693,-73.99],[40.684,-73.978],[40.668,-73.93],[40.664,-73.929]]},
+{id:"5",pts:[[40.886,-73.878],[40.805,-73.946],[40.779,-73.955],[40.752,-73.977],[40.735,-73.991],[40.71,-74.007],[40.693,-73.99],[40.684,-73.978],[40.68,-73.956],[40.669,-73.95],[40.65,-73.949]]},
+{id:"6",pts:[[40.852,-73.828],[40.83,-73.86],[40.805,-73.937],[40.779,-73.95],[40.752,-73.977],[40.735,-73.991],[40.73,-73.991],[40.712,-74.004]]},
+{id:"7",pts:[[40.76,-73.831],[40.75,-73.86],[40.746,-73.892],[40.75,-73.94],[40.752,-73.977],[40.755,-73.987],[40.754,-74.0]]},
+{id:"A",pts:[[40.868,-73.919],[40.841,-73.94],[40.81,-73.948],[40.768,-73.981],[40.757,-73.99],[40.75,-73.99],[40.74,-73.999],[40.732,-74.0],[40.71,-74.007],[40.702,-73.987],[40.69,-73.985],[40.68,-73.96],[40.679,-73.94],[40.678,-73.905],[40.678,-73.873]]},
+{id:"C",pts:[[40.868,-73.919],[40.841,-73.94],[40.81,-73.948],[40.768,-73.981],[40.757,-73.99],[40.75,-73.99],[40.74,-73.999],[40.732,-74.0],[40.71,-74.007],[40.702,-73.987],[40.69,-73.985]]},
+{id:"E",pts:[[40.71,-73.8],[40.7,-73.81],[40.72,-73.85],[40.75,-73.94],[40.757,-73.97],[40.757,-73.99],[40.75,-73.99],[40.74,-73.999],[40.732,-74.0],[40.712,-74.01]]},
+{id:"B",pts:[[40.578,-73.959],[40.603,-73.96],[40.64,-73.98],[40.684,-73.978],[40.69,-73.987],[40.718,-73.994],[40.749,-73.987],[40.758,-73.981],[40.763,-73.98],[40.805,-73.948]]},
+{id:"D",pts:[[40.577,-73.98],[40.625,-73.99],[40.655,-73.99],[40.684,-73.978],[40.69,-73.987],[40.718,-73.994],[40.749,-73.987],[40.758,-73.981],[40.828,-73.926],[40.836,-73.92],[40.877,-73.878]]},
+{id:"F",pts:[[40.577,-73.98],[40.64,-73.98],[40.702,-73.987],[40.723,-73.989],[40.732,-74.0],[40.737,-73.996],[40.749,-73.987],[40.758,-73.981],[40.764,-73.98],[40.764,-73.96],[40.747,-73.954],[40.746,-73.893],[40.72,-73.85],[40.71,-73.79]]},
+{id:"M",pts:[[40.714,-73.9],[40.699,-73.913],[40.71,-73.95],[40.717,-73.988],[40.732,-74.0],[40.749,-73.987],[40.764,-73.98],[40.764,-73.96],[40.747,-73.954],[40.72,-73.85]]},
+{id:"N",pts:[[40.577,-73.98],[40.635,-74.0],[40.655,-73.99],[40.684,-73.978],[40.69,-73.987],[40.719,-74.0],[40.735,-73.991],[40.749,-73.987],[40.755,-73.987],[40.759,-73.985],[40.764,-73.98],[40.764,-73.97],[40.762,-73.96],[40.75,-73.94],[40.775,-73.918]]},
+{id:"Q",pts:[[40.578,-73.959],[40.64,-73.98],[40.684,-73.978],[40.69,-73.987],[40.719,-74.0],[40.735,-73.991],[40.749,-73.987],[40.755,-73.987],[40.764,-73.98],[40.762,-73.96],[40.777,-73.955],[40.779,-73.95],[40.784,-73.947]]},
+{id:"R",pts:[[40.635,-74.03],[40.64,-74.03],[40.655,-73.99],[40.684,-73.978],[40.69,-73.987],[40.719,-74.0],[40.735,-73.991],[40.749,-73.987],[40.755,-73.987],[40.764,-73.98],[40.762,-73.96],[40.75,-73.94],[40.764,-73.91],[40.746,-73.893]]},
+{id:"W",pts:[[40.775,-73.918],[40.75,-73.94],[40.762,-73.96],[40.764,-73.98],[40.759,-73.985],[40.755,-73.987],[40.749,-73.987],[40.735,-73.991],[40.719,-74.0],[40.703,-74.013]]},
+{id:"G",pts:[[40.746,-73.94],[40.72,-73.95],[40.705,-73.953],[40.695,-73.94],[40.692,-73.985],[40.68,-73.99],[40.64,-73.98],[40.635,-73.99],[40.64,-74.0]]},
+{id:"J",pts:[[40.71,-73.8],[40.7,-73.81],[40.678,-73.905],[40.699,-73.913],[40.708,-73.957],[40.717,-73.988],[40.719,-74.0],[40.71,-74.007],[40.707,-74.011]]},
+{id:"L",pts:[[40.645,-73.901],[40.678,-73.905],[40.71,-73.95],[40.717,-73.957],[40.73,-73.986],[40.735,-73.991],[40.737,-73.996],[40.74,-74.0]]}
+];
+var BUS_ROUTES=[
+{id:"M15",color:"#0078d4",pts:[[40.78,-73.95],[40.76,-73.96],[40.74,-73.97],[40.72,-73.98],[40.71,-73.99]]},
+{id:"M14",color:"#0e7a5f",pts:[[40.74,-74.0],[40.738,-73.996],[40.735,-73.991],[40.733,-73.986],[40.731,-73.98]]},
+{id:"B41",color:"#c0392b",pts:[[40.69,-73.97],[40.68,-73.96],[40.665,-73.955],[40.65,-73.949],[40.64,-73.95]]},
+{id:"Q44",color:"#8e44ad",pts:[[40.75,-73.94],[40.755,-73.91],[40.76,-73.88],[40.76,-73.85],[40.76,-73.831]]},
+{id:"Bx12",color:"#d35400",pts:[[40.86,-73.91],[40.855,-73.88],[40.85,-73.85],[40.848,-73.83]]},
+{id:"M5",color:"#2c6e9b",pts:[[40.80,-73.96],[40.785,-73.965],[40.77,-73.97],[40.755,-73.975],[40.75,-73.98]]},
+{id:"B63",color:"#7d6608",pts:[[40.69,-73.99],[40.675,-73.995],[40.66,-74.0],[40.645,-74.005],[40.635,-74.01]]},
+{id:"Q70",color:"#1a7a3a",pts:[[40.77,-73.89],[40.76,-73.895],[40.75,-73.89],[40.746,-73.892]]}
+];
+var STATIONS=[
+{name:"Times Sq-42 St",lat:40.755,lon:-73.987,routes:["1","2","3","7","N","Q","R","W"]},
+{name:"Grand Central-42 St",lat:40.752,lon:-73.977,routes:["4","5","6","7"]},
+{name:"Union Sq-14 St",lat:40.735,lon:-73.991,routes:["4","5","6","L","N","Q","R","W"]},
+{name:"125 St",lat:40.805,lon:-73.946,routes:["4","5","6"]},
+{name:"Atlantic Av-Barclays Ctr",lat:40.684,lon:-73.978,routes:["2","3","4","5","B","D","N","Q","R"]},
+{name:"Fulton St",lat:40.71,lon:-74.007,routes:["2","3","4","5","A","C","J"]},
+{name:"Jay St-MetroTech",lat:40.702,lon:-73.987,routes:["A","C","F","R"]},
+{name:"Jackson Hts-Roosevelt Av",lat:40.746,lon:-73.893,routes:["7","E","F","M","R"]},
+{name:"Flushing-Main St",lat:40.76,lon:-73.831,routes:["7"]},
+{name:"Astoria-Ditmars Blvd",lat:40.775,lon:-73.918,routes:["N","W"]},
+{name:"Forest Hills-71 Av",lat:40.72,lon:-73.85,routes:["E","F","M","R"]},
+{name:"Church Av",lat:40.64,lon:-73.98,routes:["B","Q","F","G"]},
+{name:"Borough Hall",lat:40.693,lon:-73.99,routes:["2","3","4","5","R"]},
+{name:"Herald Sq-34 St",lat:40.749,lon:-73.987,routes:["B","D","F","M","N","Q","R","W"]},
+{name:"Bedford Av",lat:40.717,lon:-73.957,routes:["L"]},
+{name:"Myrtle-Wyckoff Avs",lat:40.699,lon:-73.913,routes:["L","M"]},
+{name:"Broadway Junction",lat:40.678,lon:-73.905,routes:["A","C","J","L"]},
+{name:"South Ferry",lat:40.701,lon:-73.99,routes:["1"]},
+{name:"Jamaica Center",lat:40.71,lon:-73.8,routes:["E","J"]}
+];
+var PLACES={"red hook":[40.676,-74.01],"downtown bklyn":[40.692,-73.987],"downtown brooklyn":[40.692,-73.987],"astoria":[40.764,-73.923],"union sq":[40.735,-73.991],"union square":[40.735,-73.991],"times sq":[40.755,-73.987],"times square":[40.755,-73.987],"flushing":[40.76,-73.831],"jamaica":[40.71,-73.8],"forest hills":[40.72,-73.85],"coney island":[40.577,-73.98],"brighton beach":[40.578,-73.959],"harlem":[40.81,-73.948],"125 st":[40.805,-73.946],"williamsburg":[40.708,-73.957],"greenpoint":[40.73,-73.95],"long island city":[40.746,-73.94],"queensboro":[40.75,-73.94],"midtown":[40.754,-73.98],"chelsea":[40.74,-73.995],"east village":[40.726,-73.982],"soho":[40.723,-74.0],"fulton":[40.71,-74.007],"atlantic":[40.684,-73.978],"flatbush":[40.65,-73.949],"bay ridge":[40.635,-74.03],"canarsie":[40.645,-73.901],"pelham bay":[40.852,-73.828],"woodlawn":[40.886,-73.878]};
+function placeCoord(name){var k=String(name||"").toLowerCase().trim();if(PLACES[k])return PLACES[k];for(var key in PLACES){if(k.indexOf(key)>=0||key.indexOf(k)>=0)return PLACES[key];}var st=STATIONS.find(function(s){return s.name.toLowerCase().indexOf(k)>=0;});if(st)return [st.lat,st.lon];return [40.73+rnd(-0.06,0.06),-73.95+rnd(-0.06,0.06)];}
+
+/* Polyline distance helpers: interpolate by metres along a polyline. */
+function segLengths(pts){var out=[],tot=0;for(var i=0;i<pts.length-1;i++){var d=hav(pts[i],pts[i+1]);out.push(d);tot+=d;}return {segs:out,total:tot};}
+function hav(a,b){var R=6371000,la1=a[0]*Math.PI/180,la2=b[0]*Math.PI/180,dla=(b[0]-a[0])*Math.PI/180,dlo=(b[1]-a[1])*Math.PI/180;var h=Math.sin(dla/2)*Math.sin(dla/2)+Math.cos(la1)*Math.cos(la2)*Math.sin(dlo/2)*Math.sin(dlo/2);return 2*R*Math.asin(Math.sqrt(h));}
+function pointAt(pts,meta,dist){dist=((dist%meta.total)+meta.total)%meta.total;for(var i=0;i<meta.segs.length;i++){if(dist<=meta.segs[i]||i===meta.segs.length-1){var f=meta.segs[i]?dist/meta.segs[i]:0;var a=pts[i],b=pts[i+1];return {lat:a[0]+(b[0]-a[0])*f,lon:a[1]+(b[1]-a[1])*f,bearing:bearing(a,b)}; }dist-=meta.segs[i];}var last=pts[pts.length-1];return {lat:last[0],lon:last[1],bearing:0};}
+function bearing(a,b){var y=Math.sin((b[1]-a[1])*Math.PI/180)*Math.cos(b[0]*Math.PI/180);var x=Math.cos(a[0]*Math.PI/180)*Math.sin(b[0]*Math.PI/180)-Math.sin(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.cos((b[1]-a[1])*Math.PI/180);return (Math.atan2(y,x)*180/Math.PI+360)%360;}
+
+var map=L.map("map",{center:[40.73,-73.94],zoom:11});
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',subdomains:"abcd",maxZoom:19}).addTo(map);
+var shapeLayer=L.layerGroup().addTo(map),vehicleLayer=L.layerGroup().addTo(map),alertLayer=L.layerGroup().addTo(map),forecastLayer=L.layerGroup().addTo(map),proposedLayer=L.layerGroup().addTo(map);
+var filters={subway:true,bus:true,route:"",showShapes:true};
+var paused=false;
+
+/* Route lines */
+var shapePolylines={};
+SUBWAY.forEach(function(r){var line=L.polyline(r.pts,{color:routeColor(r.id),weight:3,opacity:0.55});line._mode="subway";line._route=r.id;(shapePolylines[r.id]=shapePolylines[r.id]||[]).push(line);});
+BUS_ROUTES.forEach(function(r){var line=L.polyline(r.pts,{color:r.color,weight:2,opacity:0.45,dashArray:"6 4"});line._mode="bus";line._route=r.id;(shapePolylines[r.id]=shapePolylines[r.id]||[]).push(line);});
+function redrawShapes(){shapeLayer.clearLayers();if(!filters.showShapes)return;Object.keys(shapePolylines).forEach(function(rs){shapePolylines[rs].forEach(function(line){if(line._mode==="subway"&&!filters.subway)return;if(line._mode==="bus"&&!filters.bus)return;if(filters.route&&rs!==filters.route.toUpperCase())return;line.addTo(shapeLayer);});});}
+redrawShapes();
+
+/* Vehicles: 18 trains, 24 buses */
+var vehicles=[];
+var TRAIN_IDS=["1","2","3","4","5","6","7","A","C","E","B","D","F","M","N","Q","R","W"];
+TRAIN_IDS.forEach(function(id,i){var r=SUBWAY.find(function(x){return x.id===id;});if(!r)return;var meta=segLengths(r.pts);vehicles.push({kind:"subway",route:id,pts:r.pts,meta:meta,dist:rnd(0,meta.total),dir:i%2?1:-1,speed:rnd(9,16),marker:null});});
+BUS_ROUTES.forEach(function(r){var meta=segLengths(r.pts);for(var i=0;i<3;i++){vehicles.push({kind:"bus",route:r.id,color:r.color,pts:r.pts,meta:meta,dist:meta.total*(i/3)+rnd(0,300),dir:i%2?1:-1,speed:rnd(6,10),marker:null});}});
+function subwayIcon(route){var bg=routeColor(route),fg=textColorFor(bg);return L.divIcon({className:"veh-icon",html:'<span class="bullet subway" style="background:'+bg+';color:'+fg+'">'+esc(String(route).slice(0,2))+'</span>',iconSize:[22,22],iconAnchor:[11,11]});}
+function busIcon(route,color,bearingDeg){var fg=textColorFor(color);return L.divIcon({className:"veh-icon",html:'<span class="bullet bus" style="background:'+color+';color:'+fg+'"><span class="bus-arrow" style="transform:rotate('+bearingDeg+'deg)">&#9650;</span><span>'+esc(route)+'</span></span>',iconSize:[34,20],iconAnchor:[17,10]});}
+function vehicleVisible(v){if(v.kind==="subway"&&!filters.subway)return false;if(v.kind==="bus"&&!filters.bus)return false;if(filters.route&&v.route.toUpperCase()!==filters.route.toUpperCase())return false;return true;}
+function tooltipFor(v,p){var dir=v.dir>0?"Uptown / outbound":"Downtown / inbound";return "<b>"+esc(v.route)+"</b> "+dir+"<br/><span class='tt-status'>simulated &middot; "+(v.kind==="subway"?"subway":"bus")+"</span>";}
+function stepVehicles(dt){vehicles.forEach(function(v){if(paused)return;v.dist+=v.dir*v.speed*dt;if(v.dist>v.meta.total){v.dist=v.meta.total;v.dir=-1;}if(v.dist<0){v.dist=0;v.dir=1;}var p=pointAt(v.pts,v.meta,v.dist);if(!vehicleVisible(v)){if(v.marker){vehicleLayer.removeLayer(v.marker);v.marker=null;}return;}if(!v.marker){var icon=v.kind==="bus"?busIcon(v.route,v.color,p.bearing):subwayIcon(v.route);v.marker=L.marker([p.lat,p.lon],{icon:icon,keyboard:false}).bindTooltip(tooltipFor(v,p),{direction:"top",className:"train-tt",offset:[0,-8]});v.marker.addTo(vehicleLayer);}else{v.marker.setLatLng([p.lat,p.lon]);if(v.kind==="bus")v.marker.setIcon(busIcon(v.route,v.color,p.bearing));v.marker.setTooltipContent(tooltipFor(v,p));}});}
+function refreshVehicles(){vehicles.forEach(function(v){if(v.marker){vehicleLayer.removeLayer(v.marker);v.marker=null;}});stepVehicles(0);}
+
+/* Route filter dropdown */
+(function(){var sel=document.getElementById("route-filter");var html='<option value="">All routes</option><optgroup label="Subway">'+SUBWAY.map(function(r){return '<option value="'+r.id+'">'+r.id+'</option>';}).join("")+'</optgroup><optgroup label="Bus">'+BUS_ROUTES.map(function(r){return '<option value="'+r.id+'">'+r.id+'</option>';}).join("")+'</optgroup>';sel.innerHTML=html;})();
+
+
+/* ===== Alerts, forecasts, recommendations (all simulated) ===== */
+var alerts=[],forecasts=[],recs=[];
+var REC_POOL=[
+{action:"HOLD TRAIN",route:"1",station:"Times Sq-42 St",note:"Hold the 1 train at Times Sq for 90 seconds to restore even spacing behind the bunched pair.",rider:"The next 1 train is holding briefly at Times Square to even out service. The following train is 3 minutes behind."},
+{action:"GAP FILL",route:"4",station:"125 St",note:"Gap of 14 minutes on the 4 at 125 St. Dispatch the standby train from the yard to fill the gap.",rider:"A 4 train is on its way to 125th Street to close a longer-than-usual gap. Please expect a crowded platform for a few minutes."},
+{action:"SKIP STOP",route:"7",station:"Grand Central-42 St",note:"Skip-stop the 7 at Grand Central to recover 4 minutes and relieve the platform crowd.",rider:"The next 7 train will skip Grand Central to get service back on schedule. Take the following 7 train, due in 4 minutes."},
+{action:"MONITOR",route:"A",station:"Fulton St",note:"Headway drifting to 11 minutes on the A at Fulton St. Watch the next two arrivals before acting.",rider:"A trains are running about 11 minutes apart at Fulton Street right now. We are watching the next arrivals closely."},
+{action:"HOLD TRAIN",route:"N",station:"Atlantic Av-Barclays Ctr",note:"Hold the N at Atlantic Av for 60 seconds; the Q behind it is only 2 minutes back.",rider:"The next N train is holding briefly at Atlantic Avenue to space trains evenly."},
+{action:"GAP FILL",route:"L",station:"Bedford Av",note:"Predicted 12-minute gap on the L at Bedford Av in about 8 minutes. Stage a train at Myrtle-Wyckoff.",rider:"We are adding a train on the L line to prevent a gap at Bedford Avenue."},
+{action:"SKIP STOP",route:"6",station:"Union Sq-14 St",note:"Skip-stop the 6 at Union Sq to clear the platform surge after the crowd event.",rider:"The next 6 train will skip Union Square. The following train stops there in 3 minutes."},
+{action:"MONITOR",route:"F",station:"Jackson Hts-Roosevelt Av",note:"F headway steady at 7 minutes. No action needed; keep monitoring the Queens Blvd corridor.",rider:"F trains are running normally through Jackson Heights, about every 7 minutes."}
+];
+function nowTime(){return new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});}
+function stationByName(n){return STATIONS.find(function(s){return s.name===n;})||STATIONS[0];}
+function makeAlert(type,route,stationName,headway,sim){var st=stationByName(stationName);return {type:type,route:route,station:stationName,headway:headway,lat:st.lat,lon:st.lon,time:nowTime(),sim:!!sim};}
+function makeForecast(type,route,stationName,predicted,now,sim){var st=stationByName(stationName);return {type:type,route:route,station:stationName,predicted:predicted,now:now,lat:st.lat,lon:st.lon,sim:!!sim};}
+function seedFeeds(){
+alerts=[makeAlert("BUNCHING","1","Times Sq-42 St",142),makeAlert("GAP","4","125 St",840),makeAlert("BUNCHING","N","Atlantic Av-Barclays Ctr",165)];
+forecasts=[makeForecast("PREDICTED BUNCHING","7","Grand Central-42 St",180,420),makeForecast("PREDICTED GAP","L","Bedford Av",720,300),makeForecast("PREDICTED BUNCHING","A","Fulton St",240,480)];
+recs=[REC_POOL[0],REC_POOL[3],REC_POOL[1]].map(function(r){return Object.assign({},r,{time:nowTime()});});
+}
+seedFeeds();
+function alertIcon(type){var cls=type==="GAP"?"gap":"bunching";return L.divIcon({className:"alert-marker",html:'<span class="alert-tri '+cls+'">&#9650;</span>',iconSize:[26,26],iconAnchor:[13,13]});}
+function forecastIcon(type){var cls=type==="PREDICTED GAP"?"gap":"bunching";return L.divIcon({className:"forecast-marker",html:'<span class="forecast-ring '+cls+'">&#9681;</span>',iconSize:[24,24],iconAnchor:[12,12]});}
+function routeChip(id){var bg=routeColor(id),fg=textColorFor(bg);return '<span class="route-chip" style="background:'+bg+';color:'+fg+'">'+esc(id)+'</span>';}
+function renderAlerts(){
+document.getElementById("alerts-tag").textContent=alerts.length+" active";
+document.getElementById("stat-alerts").textContent=alerts.length;
+var feed=document.getElementById("alerts-feed");
+feed.innerHTML=alerts.length?alerts.map(function(a){var cls=a.type==="GAP"?"gap":"bunching";return '<li class="alert-item '+cls+'"><div class="alert-head">'+routeChip(a.route)+'<span class="alert-type '+cls+'">'+a.type+'</span>'+(a.sim?'<span class="sim-badge">SIM</span>':'')+'<span class="alert-time">'+a.time+'</span></div><div class="alert-body"><span>'+esc(a.station)+'</span><span class="headway">headway '+a.headway+'s</span></div></li>';}).join(""):'<li class="empty-item">No active alerts</li>';
+alertLayer.clearLayers();
+alerts.forEach(function(a){L.marker([a.lat,a.lon],{icon:alertIcon(a.type),zIndexOffset:1000}).bindTooltip('<b>'+a.type+'</b> &middot; '+esc(a.route)+'<br/>'+esc(a.station)+'<br/>headway '+a.headway+'s',{direction:"top",className:"train-tt",offset:[0,-10]}).addTo(alertLayer);});
+}
+function renderForecasts(){
+document.getElementById("forecast-tag").textContent=forecasts.length+" predicted";
+var feed=document.getElementById("forecast-feed");
+feed.innerHTML=forecasts.length?forecasts.map(function(f){var cls=f.type==="PREDICTED GAP"?"gap":"bunching";return '<li class="forecast-item '+cls+'"><div class="forecast-head">'+routeChip(f.route)+'<span class="forecast-type '+cls+'">'+f.type+'</span>'+(f.sim?'<span class="sim-badge">SIM</span>':'')+'</div><div class="forecast-body"><span>'+esc(f.station)+'</span><span class="countdown">next in ~'+f.predicted+'s <span style="color:var(--muted)">(now '+f.now+'s)</span></span></div></li>';}).join(""):'<li class="empty-item">No predictions right now</li>';
+forecastLayer.clearLayers();
+forecasts.forEach(function(f){L.marker([f.lat,f.lon],{icon:forecastIcon(f.type),zIndexOffset:900}).bindTooltip('<b>'+f.type+'</b> &middot; '+esc(f.route)+'<br/>'+esc(f.station)+'<br/>next train in ~'+f.predicted+'s',{direction:"top",className:"train-tt",offset:[0,-10]}).addTo(forecastLayer);});
+}
+function renderRecs(){
+var feed=document.getElementById("recs-feed");
+feed.innerHTML=recs.length?recs.map(function(r){return '<li class="rec-item"><div class="rec-head"><span class="action-badge '+r.action.replace(/[^A-Z]+/g,"-")+'">'+esc(r.action)+'</span>'+routeChip(r.route)+'<span style="color:var(--muted);font-size:.8rem">'+esc(r.station)+'</span><span class="alert-time">'+(r.time||"")+'</span></div><p class="rec-note">'+esc(r.note)+'</p><p class="rider-msg">&ldquo;'+esc(r.rider)+'&rdquo;</p></li>';}).join(""):'<li class="empty-item">No recommendations yet</li>';
+}
+function rotateRec(){var r=pick(REC_POOL);recs.unshift(Object.assign({},r,{time:nowTime()}));recs=recs.slice(0,4);renderRecs();}
+function randomAlertCycle(){
+if(Math.random()<0.6&&alerts.length<6){var st=pick(STATIONS);var type=Math.random()<0.5?"BUNCHING":"GAP";alerts.unshift(makeAlert(type,pick(st.routes),st.name,type==="GAP"?Math.round(rnd(600,900)):Math.round(rnd(120,200))));}
+else if(alerts.length>2){alerts.pop();}
+if(Math.random()<0.6&&forecasts.length<5){var st2=pick(STATIONS);forecasts.unshift(makeForecast(Math.random()<0.5?"PREDICTED BUNCHING":"PREDICTED GAP",pick(st2.routes),st2.name,Math.round(rnd(150,700)),Math.round(rnd(240,600))));}
+else if(forecasts.length>2){forecasts.pop();}
+renderAlerts();renderForecasts();
+}
+
+/* ===== Next arrivals board (8 rows, counting down) ===== */
+var arrivals=[];
+function seedArrivals(){arrivals=[];var used={};for(var i=0;i<8;i++){var st=pick(STATIONS);var route=pick(st.routes);arrivals.push({route:route,dir:Math.random()<0.5?"Uptown":"Downtown",station:st.name,eta:Math.round(rnd(40,900))});}arrivals.sort(function(a,b){return a.eta-b.eta;});}
+seedArrivals();
+function fmtEta(s){if(s<30)return '<span class="arriving">arriving</span>';var m=Math.floor(s/60),sec=s%60;return m>0?m+"m "+(sec<10?"0":"")+sec+"s":sec+"s";}
+function renderArrivals(){
+var body=document.getElementById("board-body");
+var list=arrivals.slice();
+if(filters.route)list=list.filter(function(a){return a.route.toUpperCase()===filters.route.toUpperCase();});
+if(!list.length){body.innerHTML='<tr><td colspan="4" style="color:var(--muted);text-align:center;padding:18px">No arrivals for this route (simulated)</td></tr>';return;}
+body.innerHTML=list.slice(0,8).map(function(a){return '<tr><td>'+routeChip(a.route)+'</td><td>'+a.dir+'</td><td>'+esc(a.station)+'</td><td class="eta-col">'+fmtEta(a.eta)+'</td></tr>';}).join("");
+}
+function tickArrivals(){arrivals.forEach(function(a){a.eta-=1;if(a.eta<=0){var st=pick(STATIONS);a.route=pick(st.routes);a.station=st.name;a.dir=Math.random()<0.5?"Uptown":"Downtown";a.eta=Math.round(rnd(240,900));}});arrivals.sort(function(a,b){return a.eta-b.eta;});renderArrivals();}
+
+/* ===== Simulated stats / weather ===== */
+var WEATHERS=[{icon:"\u2600\uFE0F",c:21,f:70,cond:"Clear"},{icon:"\u26C5",c:19,f:66,cond:"Partly cloudy"},{icon:"\u2601\uFE0F",c:17,f:63,cond:"Cloudy"},{icon:"\u2614\uFE0F",c:16,f:61,cond:"Light rain"}];
+var weatherIdx=0;
+function renderStats(){
+var visTrains=vehicles.filter(function(v){return v.kind==="subway"&&vehicleVisible(v);}).length;
+var visBuses=vehicles.filter(function(v){return v.kind==="bus"&&vehicleVisible(v);}).length;
+document.getElementById("stat-trains").textContent=filters.subway?visTrains:0;
+document.getElementById("stat-buses").textContent=filters.bus?visBuses:0;
+var routes=new Set(vehicles.filter(vehicleVisible).map(function(v){return v.route;}));
+document.getElementById("stat-routes").textContent=routes.size;
+document.getElementById("stat-surges").textContent=Math.max(0,Math.round(2+Math.sin(Date.now()/60000)*1.5));
+document.getElementById("updated").textContent="updated "+new Date().toLocaleTimeString()+" (simulated)";
+}
+function renderWeather(){var w=WEATHERS[weatherIdx%WEATHERS.length];document.getElementById("stat-weather").textContent=w.icon+" "+w.c+"\u00B0C";document.getElementById("stat-weather-desc").textContent=w.cond+" \u00B7 "+w.f+"\u00B0F";}
+
+/* ===== Controls ===== */
+document.getElementById("mode-subway").addEventListener("change",function(e){filters.subway=e.target.checked;redrawShapes();refreshVehicles();renderStats();});
+document.getElementById("mode-bus").addEventListener("change",function(e){filters.bus=e.target.checked;redrawShapes();refreshVehicles();renderStats();});
+document.getElementById("route-filter").addEventListener("change",function(e){filters.route=e.target.value;redrawShapes();refreshVehicles();renderArrivals();renderStats();});
+document.getElementById("show-shapes").addEventListener("change",function(e){filters.showShapes=e.target.checked;redrawShapes();});
+function inject(kind){
+if(kind==="bunching"){alerts.unshift(makeAlert("BUNCHING","1","Times Sq-42 St",128,true));forecasts.unshift(makeForecast("PREDICTED BUNCHING","1","Times Sq-42 St",150,420,true));recs.unshift(Object.assign({},REC_POOL[0],{time:nowTime()}));}
+else{alerts.unshift(makeAlert("GAP","4","125 St",860,true));forecasts.unshift(makeForecast("PREDICTED GAP","4","125 St",780,300,true));recs.unshift(Object.assign({},REC_POOL[1],{time:nowTime()}));}
+alerts=alerts.slice(0,6);forecasts=forecasts.slice(0,5);recs=recs.slice(0,4);
+renderAlerts();renderForecasts();renderRecs();
+}
+document.getElementById("inject-bunching").addEventListener("click",function(){inject("bunching");});
+document.getElementById("inject-gap").addEventListener("click",function(){inject("gap");});
+document.getElementById("inject-clear").addEventListener("click",function(){seedFeeds();renderAlerts();renderForecasts();renderRecs();});
+document.getElementById("pause-btn").addEventListener("click",function(){paused=!paused;this.textContent=paused?"Resume":"Pause";document.getElementById("conn").textContent=paused?"\u25CF SIMULATION PAUSED":"\u25CF SIMULATED LIVE";});
+document.getElementById("reset-btn").addEventListener("click",function(){paused=false;document.getElementById("pause-btn").textContent="Pause";seedFeeds();seedArrivals();weatherIdx=0;renderAlerts();renderForecasts();renderRecs();renderArrivals();renderWeather();renderStats();});
+
+/* ===== AI agents (canned, offline, grounded in simulated state) ===== */
+document.querySelectorAll(".agent-tab").forEach(function(tab){tab.addEventListener("click",function(){var name=tab.dataset.agent;document.querySelectorAll(".agent-tab").forEach(function(t){var on=t===tab;t.classList.toggle("active",on);t.setAttribute("aria-selected",on?"true":"false");});document.querySelectorAll(".agent-pane").forEach(function(p){p.classList.toggle("active",p.id==="pane-"+name);});});});
+document.querySelectorAll(".agent-run").forEach(function(btn){btn.addEventListener("click",function(){runAgent(btn.dataset.agent);});});
+function mockNote(){return "\n\n[Simulated / mock answer \u2014 no live model, no live data.]";}
+function runAgent(name){
+var val=function(id){return (document.getElementById(id)||{value:""}).value.trim();};
+var out=document.getElementById("out-"+name);
+out.textContent="Thinking over the simulated feed\u2026";
+setTimeout(function(){
+if(name==="advisor"){
+var o=val("adv-origin")||"Union Sq",d=val("adv-dest")||"Astoria",q=val("adv-q");
+var worst=alerts[0];
+out.textContent="Rider Advisor (simulated)\n\nTrip: "+o+" \u2192 "+d+".\n\n\u2022 Right now in the simulation there "+(alerts.length===1?"is 1 active alert":"are "+alerts.length+" active alerts")+". The latest is "+worst.type.toLowerCase()+" on the "+worst.route+" at "+worst.station+" (headway "+worst.headway+"s).\n\u2022 Weather (simulated): "+WEATHERS[weatherIdx%WEATHERS.length].cond+", "+WEATHERS[weatherIdx%WEATHERS.length].c+"\u00B0C. Crowd surges: "+document.getElementById("stat-surges").textContent+".\n\u2022 Suggested plan: allow 5\u201310 extra minutes, check the Next Arrivals board above, and avoid the "+worst.route+" at "+worst.station+" if you can transfer instead."+(q?"\n\u2022 Your question ("+q+"): in this mock, the answer is based only on the simulated alerts and arrivals on screen.":"")+mockNote();
+}else if(name==="operator"){
+out.textContent="Operator Prediction (simulated)\n\nHealth: "+alerts.length+" active alerts, "+forecasts.length+" predicted headway events, "+vehicles.length+" simulated vehicles ("+vehicles.filter(function(v){return v.kind==="subway";}).length+" trains, "+vehicles.filter(function(v){return v.kind==="bus";}).length+" buses).\n\n\u2022 Next likely problem: "+forecasts[0].type.toLowerCase()+" on the "+forecasts[0].route+" at "+forecasts[0].station+" in ~"+forecasts[0].predicted+"s.\n\u2022 Recommended action: "+recs[0].action+" on the "+recs[0].route+" at "+recs[0].station+" \u2014 "+recs[0].note+"\n\u2022 What would degrade next: the corridor around "+alerts[0].station+" if the "+alerts[0].route+" headway stays above "+alerts[0].headway+"s for another 10 simulated minutes."+mockNote();
+}else{
+var o=val("rt-origin")||"Red Hook",d=val("rt-dest")||"Downtown Bklyn",c=val("rt-constraints");
+var a=placeCoord(o),b=placeCoord(d);
+var mid=[(a[0]+b[0])/2+0.01,(a[1]+b[1])/2-0.01];
+var wp=[a,mid,b];
+proposedLayer.clearLayers();
+var line=L.polyline(wp,{color:"#4cc9f0",weight:5,opacity:0.9,dashArray:"10 8"}).addTo(proposedLayer);
+wp.forEach(function(ll,i){L.circleMarker(ll,{radius:i===0||i===wp.length-1?7:4,color:"#4cc9f0",fillColor:i===0?"#1fc77b":i===wp.length-1?"#ff4d4d":"#4cc9f0",fillOpacity:1,weight:2}).addTo(proposedLayer);});
+map.fitBounds(line.getBounds(),{padding:[40,40],maxZoom:14});
+out.innerHTML="";
+var div=document.createElement("div");
+div.innerHTML='<div class="route-title">Proposed route: '+esc(o)+' \u2192 '+esc(d)+'</div><div>Simulated route serving the corridor between '+esc(o)+' and '+esc(d)+', via a midpoint stop. It connects to the simulated subway at the nearest station on the map.</div><div class="route-meta">Stops: '+esc(o)+' \u2192 Midpoint \u2192 '+esc(d)+'</div><div class="route-meta">Constraints noted: '+(c?esc(c):"none given")+'</div><div class="route-meta">Drawn on the map in cyan (dashed).</div><div class="mock-note">Simulated / mock answer \u2014 no live model, no live data.</div>';
+out.appendChild(div);
+}
+},350);
+}
+
+/* ===== Main loop ===== */
+renderAlerts();renderForecasts();renderRecs();renderArrivals();renderWeather();renderStats();
+var last=performance.now();
+function loop(now){var dt=Math.min(0.1,(now-last)/1000);last=now;stepVehicles(dt);requestAnimationFrame(loop);}
+requestAnimationFrame(loop);
+setInterval(function(){if(!paused){tickArrivals();renderStats();}},1000);
+setInterval(function(){if(!paused){rotateRec();}},15000);
+setInterval(function(){if(!paused){randomAlertCycle();}},12000);
+setInterval(function(){weatherIdx++;renderWeather();},30000);
+</script>
+</body>
+</html>
