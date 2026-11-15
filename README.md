@@ -16,6 +16,12 @@ Live MTA GTFS-Realtime feeds flow into Kafka; **Apache Flink SQL** computes live
 
 The dashboard is a high-performance live map: real subway route lines (from static GTFS geometry) with live subway trains and **~2,700 city buses** — buses carry real GPS lat/lon + heading — moving on top, plus mode/route filters and on-map alert markers. Alongside the map, three **interactive AI copilots** (Rider Advisor, Fleet Risk Predictor, and Bus Route Designer) answer questions grounded in the live system state — they use Google Gemini when a Google API key is set and fall back to Anthropic Claude otherwise.
 
+## Live Demo (Mock)
+
+**Try the demo:** [transit-pulse-nyc-demo.vercel.app](https://transit-pulse-nyc-demo.vercel.app/)
+
+A static demo with mock data, simulating the live map, alerts, AI dispatcher recommendations, and arrivals. No live MTA feed, and nothing deployed on Confluent.
+
 ---
 
 ## Screenshots & Live Views
